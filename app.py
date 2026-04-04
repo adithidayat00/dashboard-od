@@ -10,42 +10,69 @@ st.title("📊 Dashboard Monitoring OD")
 # INPUT
 # =========================
 tgl_tagihan = st.date_input("Tanggal Terima Tagihan")
-uploaded_file = st.file_uploader("Upload Data Excel", type=["xlsx"])
+uploaded_file = st.file_uploader("Upload Data Excel", type=["xlsx", "xls"])
 
 if uploaded_file:
     df = pd.read_excel(uploaded_file)
 
-    # rapihin kolom
-    df.columns = df.columns.str.strip()
+    # =========================
+    # BERSIHKAN NAMA KOLOM (ANTI ERROR TOTAL)
+    # =========================
+    df.columns = (
+        df.columns
+        .str.strip()
+        .str.lower()
+        .str.replace(" ", "")
+        .str.replace("'", "")
+        .str.replace("-", "")
+    )
+
+    # DEBUG (optional, bisa dihapus nanti)
+    st.write("Kolom terdeteksi:", df.columns)
 
     # =========================
-    # RENAME SESUAI DATA LO
+    # RENAME OTOMATIS (FLEXIBLE)
     # =========================
-    df.rename(columns={
-        "NoReg": "No_Kontrak",
-        "TglIn": "Tgl_Tagihan",
-        "NamaCust": "Nama_Cust",
-        "State": "Stat_OV",
-        "TglVld": "Tanggal_Valid"
-    }, inplace=True)
+    mapping = {
+        "noreg": "no_kontrak",
+        "tglin": "tgl_tagihan",
+        "namacust": "nama_cust",
+        "state": "stat_ov",
+        "tglvld": "tanggal_valid",
+        "tglvalid": "tanggal_valid"
+    }
+
+    df.rename(columns={k: v for k, v in mapping.items() if k in df.columns}, inplace=True)
+
+    # =========================
+    # VALIDASI KOLOM WAJIB
+    # =========================
+    required_cols = ["no_kontrak", "tanggal_valid"]
+
+    missing = [col for col in required_cols if col not in df.columns]
+    if missing:
+        st.error(f"Kolom wajib tidak ditemukan: {missing}")
+        st.stop()
 
     # =========================
     # FORMAT TANGGAL
     # =========================
-    df["Tanggal_Valid"] = pd.to_datetime(df["Tanggal_Valid"], errors='coerce')
+    df["tanggal_valid"] = pd.to_datetime(df["tanggal_valid"], errors='coerce')
 
     # =========================
     # HITUNG SELISIH
     # =========================
-    df["Selisih_Hari"] = (
-        df["Tanggal_Valid"] - pd.to_datetime(tgl_tagihan)
+    df["selisih_hari"] = (
+        df["tanggal_valid"] - pd.to_datetime(tgl_tagihan)
     ).dt.days
 
     # =========================
     # KLASIFIKASI OD
     # =========================
     def klasifikasi_od(x):
-        if 15 <= x <= 45:
+        if pd.isna(x):
+            return "Tidak Valid"
+        elif 15 <= x <= 45:
             return "OD1"
         elif 46 <= x <= 75:
             return "OD2"
@@ -54,7 +81,7 @@ if uploaded_file:
         else:
             return "Tidak Masuk OD"
 
-    df["Kategori_OD"] = df["Selisih_Hari"].apply(klasifikasi_od)
+    df["kategori_od"] = df["selisih_hari"].apply(klasifikasi_od)
 
     # =========================
     # SUMMARY
@@ -62,19 +89,19 @@ if uploaded_file:
     st.subheader("📊 Summary OD")
 
     col1, col2, col3 = st.columns(3)
-    col1.metric("OD1", (df["Kategori_OD"] == "OD1").sum())
-    col2.metric("OD2", (df["Kategori_OD"] == "OD2").sum())
-    col3.metric("OD3", (df["Kategori_OD"] == "OD3").sum())
+    col1.metric("OD1", (df["kategori_od"] == "OD1").sum())
+    col2.metric("OD2", (df["kategori_od"] == "OD2").sum())
+    col3.metric("OD3", (df["kategori_od"] == "OD3").sum())
 
     # =========================
-    # HIGHLIGHT
+    # HIGHLIGHT WARNA
     # =========================
     def highlight_od(row):
-        if row["Kategori_OD"] == "OD1":
+        if row["kategori_od"] == "OD1":
             return ["background-color: #90EE90"] * len(row)
-        elif row["Kategori_OD"] == "OD2":
+        elif row["kategori_od"] == "OD2":
             return ["background-color: #FFD700"] * len(row)
-        elif row["Kategori_OD"] == "OD3":
+        elif row["kategori_od"] == "OD3":
             return ["background-color: #FF7F7F"] * len(row)
         else:
             return [""] * len(row)
@@ -88,13 +115,16 @@ if uploaded_file:
     st.write(styled_df)
 
     # =========================
-    # DOWNLOAD EXCEL
+    # PILIH FORMAT DOWNLOAD
     # =========================
     format_file = st.selectbox(
         "Pilih Format Download",
         ["Excel (.xlsx)", "Excel 97-2003 (.xls)"]
     )
 
+    # =========================
+    # EXPORT EXCEL
+    # =========================
     def convert_to_excel(dataframe, format_type):
         output = BytesIO()
 
