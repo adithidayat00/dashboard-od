@@ -14,23 +14,36 @@ uploaded_file = st.file_uploader("Upload Data Excel", type=["xlsx"])
 
 if uploaded_file:
     df = pd.read_excel(uploaded_file)
+
+    # rapihin kolom
     df.columns = df.columns.str.strip()
 
+    # =========================
+    # RENAME SESUAI DATA LO
+    # =========================
     df.rename(columns={
         "NoReg": "No_Kontrak",
-        "Stat OV": "Stat_OV",
-        "Tanggal Valid": "Tanggal_Valid"
+        "TglIn": "Tgl_Tagihan",
+        "NamaCust": "Nama_Cust",
+        "State": "Stat_OV",
+        "TglVld": "Tanggal_Valid"
     }, inplace=True)
 
+    # =========================
+    # FORMAT TANGGAL
+    # =========================
     df["Tanggal_Valid"] = pd.to_datetime(df["Tanggal_Valid"], errors='coerce')
 
     # =========================
-    # HITUNG
+    # HITUNG SELISIH
     # =========================
     df["Selisih_Hari"] = (
         df["Tanggal_Valid"] - pd.to_datetime(tgl_tagihan)
     ).dt.days
 
+    # =========================
+    # KLASIFIKASI OD
+    # =========================
     def klasifikasi_od(x):
         if 15 <= x <= 45:
             return "OD1"
@@ -68,11 +81,14 @@ if uploaded_file:
 
     styled_df = df.style.apply(highlight_od, axis=1)
 
+    # =========================
+    # TABEL
+    # =========================
     st.subheader("📋 Data Rekap")
     st.write(styled_df)
 
     # =========================
-    # PILIH FORMAT DOWNLOAD
+    # DOWNLOAD EXCEL
     # =========================
     format_file = st.selectbox(
         "Pilih Format Download",
@@ -89,7 +105,6 @@ if uploaded_file:
             filename = "rekap_od.xlsx"
 
         else:
-            # format lama
             with pd.ExcelWriter(output, engine='xlwt') as writer:
                 dataframe.to_excel(writer, index=False, sheet_name='Rekap OD')
             mime = "application/vnd.ms-excel"
