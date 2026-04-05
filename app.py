@@ -6,8 +6,8 @@ import os
 # =========================
 # CONFIG SUPABASE (PAKE SECRET STREAMLIT)
 # =========================
-SUPABASE_URL = st.secrets["https://uszepsidhhbvindwvbnp.supabase.co"]
-SUPABASE_KEY = st.secrets["eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVzemVwc2lkaGhidmluZHd2Ym5wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU0MTAxMTgsImV4cCI6MjA5MDk4NjExOH0.F7r9zj2zAevrguNNjDimym-FKRxOpLGgO74D7U3wf-4"]
+SUPABASE_URL = st.secrets["SUPABASE_URL"]
+SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
