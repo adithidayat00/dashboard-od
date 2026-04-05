@@ -4,6 +4,7 @@ import numpy as np
 from supabase import create_client
 from datetime import datetime
 import os
+import math
 
 # =============================
 # 🔑 CONFIG
@@ -41,17 +42,70 @@ def insert_input(noreg, tgl_invoice):
         st.error(f"❌ Error Insert: {e}")
 
 # =============================
+# CLEAN COLUMN NAMES
+# =============================
+def clean_columns(df):
+    df.columns = (
+        df.columns.str.strip()
+        .str.replace(" ", "_")
+        .str.replace(r"[^\w]", "", regex=True)
+    )
+    return df
+
+# =============================
+# CLEAN VALUE
+# =============================
+def clean_value(val):
+    # pd.NA, pd.NaT, None
+    try:
+        if pd.isna(val):
+            return None
+    except (TypeError, ValueError):
+        pass
+
+    # numpy integer
+    if isinstance(val, np.integer):
+        return int(val)
+
+    # numpy floating
+    if isinstance(val, np.floating):
+        if math.isnan(val) or math.isinf(val):
+            return None
+        return float(val)
+
+    # numpy bool
+    if isinstance(val, np.bool_):
+        return bool(val)
+
+    # numpy array
+    if isinstance(val, np.ndarray):
+        return val.tolist()
+
+    # native float (NaN / Inf)
+    if isinstance(val, float):
+        if math.isnan(val) or math.isinf(val):
+            return None
+        return val
+
+    return val
+
+# =============================
 # CLEAN FOR JSON
 # =============================
 def clean_for_json(df):
     df = df.copy()
+
+    # Datetime → string
     for col in df.columns:
         if pd.api.types.is_datetime64_any_dtype(df[col]):
             df[col] = df[col].dt.strftime("%Y-%m-%d")
-        df[col] = df[col].where(pd.notna(df[col]), other=None)
-        if pd.api.types.is_integer_dtype(df[col]):
-            df[col] = df[col].astype(object)
-    return df
+
+    # Clean nilai per record
+    records = df.to_dict(orient="records")
+    cleaned = []
+    for row in records:
+        cleaned.append({k: clean_value(v) for k, v in row.items()})
+    return cleaned
 
 # =============================
 # KATEGORI OD
@@ -86,8 +140,8 @@ if uploaded_file:
         st.dataframe(df_upload.head())
 
         if st.button("🚀 Upload ke DB"):
-            df_clean = clean_for_json(df_upload)
-            data = df_clean.to_dict(orient="records")
+            df_upload = clean_columns(df_upload)   # ✅ bersihkan nama kolom
+            data = clean_for_json(df_upload)        # ✅ bersihkan nilai
 
             for i in range(0, len(data), 500):
                 supabase.table("db_ascii").upsert(
