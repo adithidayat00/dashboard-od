@@ -2,12 +2,13 @@ import streamlit as st
 import pandas as pd
 from supabase import create_client
 from datetime import datetime
+import os
 
 # =============================
-# 🔑 CONFIG
+# CONFIG
 # =============================
-SUPABASE_URL = "https://jrikxltaaxlipbgturju.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpyaWt4bHRhYXhsaXBiZ3R1cmp1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUyODMxNzEsImV4cCI6MjA5MDg1OTE3MX0.gloC3nfdIx7q9rV8kEXcKsAaZpJB9nOeyvRRS4yY-6U"
+SUPABASE_URL = st.secrets["https://jrikxltaaxlipbgturju.supabase.co"]
+SUPABASE_KEY = st.secrets["eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpyaWt4bHRhYXhsaXBiZ3R1cmp1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUyODMxNzEsImV4cCI6MjA5MDg1OTE3MX0.gloC3nfdIx7q9rV8kEXcKsAaZpJB9nOeyvRRS4yY-6U"]
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -28,28 +29,60 @@ def load_input():
 # =============================
 # INSERT INPUT
 # =============================
-def insert_input(no_kontrak, tgl_invoice):
+def insert_input(noreg, tgl_invoice):
     supabase.table("input_data").insert({
-        "no_kontrak": str(no_kontrak),
-        "tgl_invoice": pd.to_datetime(tgl_invoice).strftime("%Y-%m-%d")
+        "NoReg": str(noreg),
+        "Tanggal Invoice": pd.to_datetime(tgl_invoice).strftime("%Y-%m-%d")
     }).execute()
 
 # =============================
-# UI INPUT
+# UPLOAD EXCEL
+# =============================
+st.subheader("📂 Upload DB ASCII")
+
+uploaded_file = st.file_uploader("Upload Excel (.xls/.xlsx)", type=["xls","xlsx"])
+
+if uploaded_file:
+    try:
+        ext = os.path.splitext(uploaded_file.name)[1]
+
+        if ext == ".xls":
+            df_upload = pd.read_excel(uploaded_file, engine="xlrd")
+        else:
+            df_upload = pd.read_excel(uploaded_file, engine="openpyxl")
+
+        st.write("Preview:")
+        st.dataframe(df_upload.head())
+
+        if st.button("Upload ke DB"):
+            data = df_upload.to_dict(orient="records")
+
+            for i in range(0, len(data), 500):
+                supabase.table("db_ascii").insert(data[i:i+500]).execute()
+
+            st.success("✅ Upload berhasil")
+            st.rerun()
+
+    except Exception as e:
+        st.error(e)
+
+# =============================
+# INPUT INVOICE
 # =============================
 st.subheader("📝 Input Invoice")
 
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    no_kontrak = st.text_input("NoReg")
+    noreg = st.text_input("NoReg")
 
 with col2:
     tgl_invoice = st.date_input("Tanggal Invoice")
 
 with col3:
     if st.button("Tambah"):
-        insert_input(no_kontrak, tgl_invoice)
+        insert_input(noreg, tgl_invoice)
+        st.success("Masuk!")
         st.rerun()
 
 # =============================
@@ -60,29 +93,30 @@ df_input = load_input()
 
 if not db.empty and not df_input.empty:
 
-    db["no_kontrak"] = db["no_kontrak"].astype(str)
-    df_input["no_kontrak"] = df_input["no_kontrak"].astype(str)
+    # 🔥 SAMAIN FORMAT
+    db["NoReg"] = db["NoReg"].astype(str)
+    df_input["NoReg"] = df_input["NoReg"].astype(str)
 
-    # 🔥 gabung state
-    db["status"] = db["state"].fillna("") + db["state1"].fillna("")
+    # 🔥 STATUS
+    db["status"] = db["State"].fillna("") + db["State1"].fillna("")
 
-    # 🔥 merge
-    df = df_input.merge(db, on="no_kontrak", how="left")
+    # 🔥 MERGE
+    df = df_input.merge(db, on="NoReg", how="left")
 
     # =============================
     # HITUNG OD
     # =============================
-    df["tgl_invoice"] = pd.to_datetime(df["tgl_invoice"])
+    df["Tanggal Invoice"] = pd.to_datetime(df["Tanggal Invoice"])
     today = pd.to_datetime(datetime.today().date())
 
-    df["hari"] = (today - df["tgl_invoice"]).dt.days
+    df["hari"] = (today - df["Tanggal Invoice"]).dt.days
 
     def kategori(h):
         if h < 15:
             return "Belum OD"
-        elif 15 <= h <= 45:
+        elif h <= 45:
             return "OD 1"
-        elif 46 <= h <= 75:
+        elif h <= 75:
             return "OD 2"
         else:
             return "OD 3"
@@ -90,28 +124,25 @@ if not db.empty and not df_input.empty:
     df["kategori_od"] = df["hari"].apply(kategori)
 
     # =============================
-    # STATUS LUNAS (OVOP)
+    # STATUS LUNAS
     # =============================
     df["is_lunas"] = df["status"].str.contains("OVOP", na=False)
 
-    # =============================
-    # SORTING
-    # =============================
     df = df.sort_values(by=["is_lunas", "hari"], ascending=[True, False])
 
     # =============================
-    # KOLOM FINAL
+    # DISPLAY
     # =============================
     df_display = df[[
-        "no_kontrak",
+        "NoReg",
         "kategori_od",
-        "nama_cust",
-        "type",
-        "dealer",
-        "so",
-        "brand",
+        "NamaCust",
+        "Type",
+        "Dealer",
+        "SalesACC",
+        "Brand",
         "status",
-        "af",
+        "AF",
         "hari"
     ]]
 
@@ -125,16 +156,16 @@ if not db.empty and not df_input.empty:
     for i, kategori_name in enumerate(["OD 1", "OD 2", "OD 3"]):
         data = df[df["kategori_od"] == kategori_name]
         total = len(data)
-        af_sum = pd.to_numeric(data["af"], errors="coerce").sum()
+        af_sum = pd.to_numeric(data["AF"], errors="coerce").sum()
 
         with [col1, col2, col3][i]:
             st.metric(kategori_name, f"{total} account", f"AF: {int(af_sum):,}")
 
     # =============================
-    # HIGHLIGHT
+    # TABLE
     # =============================
     def highlight(row):
-        if row["status"] and "OVOP" in row["status"]:
+        if "OVOP" in str(row["status"]):
             return ["background-color: green"] * len(row)
         return [""] * len(row)
 
