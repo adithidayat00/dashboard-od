@@ -33,8 +33,9 @@ def load_data():
 
     return df
 
+# 🔥 TANPA DELETE (FIX ERROR)
 def upload_db(df):
-    supabase.table("db_ascii").delete().neq("no_kontrak", "").execute()
+    df = df.drop_duplicates(subset=["no_kontrak"])
     supabase.table("db_ascii").insert(df.to_dict(orient="records")).execute()
 
 def load_db():
@@ -118,7 +119,7 @@ if not df.empty:
         how="left"
     )
 
-    # HITUNG
+    # HITUNG OD
     df["selisih_hari"] = (df["tanggal_valid"] - df["tgl_invoice"]).dt.days
 
     def kategori(x):
@@ -135,7 +136,7 @@ if not df.empty:
 
     df["kategori_od"] = df["selisih_hari"].apply(kategori)
 
-    # SORT
+    # SORT PRIORITAS
     order = {"OD3": 1, "OD2": 2, "OD1": 3, "Tidak Masuk OD": 4, "Tidak Valid": 5}
     df["priority"] = df["kategori_od"].map(order)
 
