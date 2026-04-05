@@ -10,7 +10,7 @@ import re
 # 🔑 CONFIG
 # =============================
 SUPABASE_URL = "https://jrikxltaaxlipbgturju.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpyaWt4bHRhYXhsaXBiZ3R1cmp1Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTI4MzE3MSwiZXhwIjoyMDkwODU5MTcxfQ.08ArMKSDHRnQRy8lM3j7jKKG9IFrDBf6g0xeYxfyVgg"  # 🔥 WAJIB pakai ini kalau RLS aktif
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpyaWt4bHRhYXhsaXBiZ3R1cmp1Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTI4MzE3MSwiZXhwIjoyMDkwODU5MTcxfQ.08ArMKSDHRnQRy8lM3j7jKKG9IFrDBf6g0xeYxfyVgg"
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -25,36 +25,42 @@ def normalize_noreg(series):
         series.astype(str)
         .str.replace(r"\.0$", "", regex=True)
         .str.replace(r"\s+", "", regex=True)
+        .str.replace(r"[^\d]", "", regex=True)
         .str.strip()
     )
 
 # =============================
-# AUTO MAP KOLOM EXCEL
+# AUTO MAP KOLOM
 # =============================
 def auto_map_columns(df):
-    mapping_patterns = {
-        "No_Reg": ["noreg", "no_reg", "no reg"],
-        "Nama_Cust": ["nama"],
-        "Dealer": ["dealer"],
-        "Sales_ACC": ["sales"],
-        "Brand": ["brand", "merk"],
-        "Type": ["type"],
-        "State": ["state", "sta"],
-        "State1": ["state1", "staty"],
-        "AF": ["af"]
-    }
+    mapping = {}
 
-    new_cols = {}
     for col in df.columns:
         c = col.lower().replace(" ", "").replace("_", "")
-        for target, keys in mapping_patterns.items():
-            if any(k in c for k in keys):
-                new_cols[col] = target
 
-    return df.rename(columns=new_cols)
+        if "noreg" in c:
+            mapping[col] = "No_Reg"
+        elif "nama" in c:
+            mapping[col] = "Nama_Cust"
+        elif "dealer" in c:
+            mapping[col] = "Dealer"
+        elif "sales" in c:
+            mapping[col] = "Sales_ACC"
+        elif "brand" in c or "merk" in c:
+            mapping[col] = "Brand"
+        elif "type" in c:
+            mapping[col] = "Type"
+        elif c == "state":
+            mapping[col] = "State"
+        elif c == "state1":
+            mapping[col] = "State1"
+        elif c == "af":
+            mapping[col] = "AF"
+
+    return df.rename(columns=mapping)
 
 # =============================
-# 🔥 KOLOM VALID (ANTI ERROR)
+# VALID COLUMNS
 # =============================
 VALID_COLUMNS = [
     "No_Reg", "Nama_Cust", "Dealer",
@@ -117,20 +123,18 @@ if uploaded_file:
 
         if st.button("🚀 Upload ke DB"):
 
-            # 🔥 AUTO MAP
+            # AUTO MAP
             df_upload = auto_map_columns(df_upload)
 
-            # 🔥 VALIDASI WAJIB
             if "No_Reg" not in df_upload.columns:
                 st.error("❌ Kolom No_Reg tidak ditemukan!")
                 st.stop()
 
-            # 🔥 NORMALIZE
+            # NORMALIZE
             df_upload["No_Reg"] = normalize_noreg(df_upload["No_Reg"])
-            df_upload = df_upload[df_upload["No_Reg"].notna()]
             df_upload = df_upload[df_upload["No_Reg"] != ""]
 
-            # 🔥 FILTER KOLOM VALID (ANTI ADMIN ERROR)
+            # FILTER KOLOM VALID
             df_upload = df_upload[[col for col in df_upload.columns if col in VALID_COLUMNS]]
 
             st.write("Kolom final:", df_upload.columns.tolist())
@@ -181,8 +185,11 @@ if not db.empty and not df_input.empty:
     db["No_Reg"] = normalize_noreg(db["No_Reg"])
     df_input["No_Reg"] = normalize_noreg(df_input["No_Reg"])
 
-    # STATUS
-    db["status"] = db["State"].fillna("") + " " + db["State1"].fillna("")
+    # 🔥 FIX STATUS (STATE + STATE1 TANPA SPASI)
+    db["status"] = (
+        db["State"].fillna("").str.strip() +
+        db["State1"].fillna("").str.strip()
+    )
 
     # MERGE
     df = df_input.merge(db, on="No_Reg", how="left")
@@ -209,12 +216,9 @@ if not db.empty and not df_input.empty:
 
     df["kategori_od"] = df["hari"].apply(kategori)
 
-    # =============================
     # DETEKSI LUNAS
-    # =============================
     df["is_lunas"] = df["status"].str.contains("OV|OP", na=False)
 
-    # SORT
     df = df.sort_values(by=["is_lunas", "hari"], ascending=[True, False])
 
     # =============================
@@ -238,7 +242,7 @@ if not db.empty and not df_input.empty:
     # =============================
     def highlight(row):
         if re.search("OV|OP", str(row["status"])):
-            return ["background-color: #14532d; color: white"] * len(row)
+            return ["background-color: green"] * len(row)
         return [""] * len(row)
 
     cols = [
@@ -250,22 +254,15 @@ if not db.empty and not df_input.empty:
     # DATA AKTIF
     # =============================
     st.subheader("📋 Data Monitoring (Aktif)")
-    st.dataframe(
-        df_aktif[cols].style.apply(highlight, axis=1),
-        use_container_width=True
-    )
+    st.dataframe(df_aktif[cols].style.apply(highlight, axis=1), use_container_width=True)
 
     # =============================
     # DATA LUNAS
     # =============================
     st.subheader("✅ Data Lunas (OV / OP)")
-
     df_lunas = df[df["is_lunas"]]
 
-    st.dataframe(
-        df_lunas[cols].style.apply(highlight, axis=1),
-        use_container_width=True
-    )
+    st.dataframe(df_lunas[cols].style.apply(highlight, axis=1), use_container_width=True)
 
 else:
     st.warning("⚠️ Upload DB ASCII dulu atau input data")
