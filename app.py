@@ -143,15 +143,19 @@ if uploaded_file:
             # 1. Bersihkan nama kolom
             df_upload = clean_columns(df_upload)
 
-            # 2. Filter hanya kolom valid
+            # 2. Hapus baris yang No_Reg kosong
+            df_upload = df_upload[df_upload["No_Reg"].notna()]
+            df_upload = df_upload[df_upload["No_Reg"].astype(str).str.strip() != ""]
+
+            # 3. Filter hanya kolom valid
             valid_cols = [c for c in df_upload.columns if c in VALID_DB_COLUMNS]
             df_upload = df_upload[valid_cols]
             st.info(f"📌 Kolom yang diupload: {valid_cols}")
 
-            # 3. Bersihkan nilai
+            # 4. Bersihkan nilai
             data = clean_for_json(df_upload)
 
-            # 4. Upload batch
+            # 5. Upload batch
             for i in range(0, len(data), 500):
                 supabase.table("db_ascii").upsert(
                     data[i:i+500],
