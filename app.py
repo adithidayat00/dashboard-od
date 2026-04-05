@@ -116,22 +116,52 @@ if not df.empty:
 # =========================
 # UPLOAD EXCEL MASTER DATA
 # =========================
-st.subheader("📤 Upload Master Data (db_ascii)")
-
-uploaded_file = st.file_uploader(
-    "Upload Excel (xlsx / xls)",
-    type=["xlsx", "xls"]
-)
-
 if uploaded_file:
 
     try:
         df_excel = pd.read_excel(uploaded_file)
 
+        # =========================
+        # RENAME KOLOM (MAPPING)
+        # =========================
+        df_excel = df_excel.rename(columns={
+            "NoReg": "noreg",
+            "NamaCust": "nama_customer",
+            "NamaDealer": "dealer",
+            "SalesACC": "salesacc",
+            "Merk": "brand",
+            "State": "state",
+            "State1": "state1",
+            "AF": "af"
+        })
+
+        # =========================
+        # AMBIL KOLOM YANG DIPAKE AJA
+        # =========================
+        df_excel = df_excel[
+            ["noreg", "nama_customer", "type", "dealer", "salesacc", "brand", "state", "state1", "af"]
+        ]
+
+        # =========================
+        # CLEANING DATA
+        # =========================
+
+        # AF jadi numeric
+        df_excel["af"] = pd.to_numeric(df_excel["af"], errors="coerce").fillna(0)
+
+        # convert semua ke string (hindarin error JSON)
+        for col in df_excel.columns:
+            if df_excel[col].dtype == "datetime64[ns]":
+                df_excel[col] = df_excel[col].astype(str)
+
+        # isi null
+        df_excel = df_excel.fillna("")
+
+        # =========================
+        # PREVIEW
+        # =========================
         st.write("Preview Data:")
         st.dataframe(df_excel.head())
-
-        st.info("Pastikan kolom sesuai: noreg, nama_customer, type, dealer, salesacc, brand, state, state1, af")
 
         if st.button("Upload ke Database"):
 
@@ -142,4 +172,4 @@ if uploaded_file:
             st.success("✅ Master data berhasil diupload!")
 
     except Exception as e:
-        st.error(f"❌ Error baca file: {e}")
+        st.error(f"❌ Error: {e}")
