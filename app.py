@@ -4,7 +4,7 @@ import numpy as np
 from supabase import create_client
 from datetime import datetime
 import os
-import math
+import re
 
 # =============================
 # 🔑 CONFIG
@@ -18,7 +18,7 @@ st.set_page_config(layout="wide")
 st.title("📊 Sistem Monitoring OD")
 
 # =============================
-# NORMALIZE No_Reg (🔥 WAJIB)
+# NORMALIZE No_Reg
 # =============================
 def normalize_noreg(series):
     return (
@@ -53,7 +53,7 @@ def insert_input(noreg, tgl_invoice):
         st.error(f"❌ Error Insert: {e}")
 
 # =============================
-# CLEAN COLUMN NAMES
+# CLEAN COLUMN
 # =============================
 def clean_columns(df):
     df.columns = (
@@ -64,7 +64,7 @@ def clean_columns(df):
     return df
 
 # =============================
-# RENAME MAP (FLEXIBLE)
+# RENAME MAP
 # =============================
 RENAME_MAP = {
     "NoReg": "No_Reg",
@@ -115,9 +115,7 @@ if uploaded_file:
             df_upload = clean_columns(df_upload)
             df_upload = df_upload.rename(columns=RENAME_MAP)
 
-            # 🔥 WAJIB normalize
             df_upload["No_Reg"] = normalize_noreg(df_upload["No_Reg"])
-
             df_upload = df_upload[df_upload["No_Reg"].notna()]
             df_upload = df_upload[df_upload["No_Reg"] != ""]
 
@@ -164,19 +162,17 @@ df_input = load_input()
 
 if not db.empty and not df_input.empty:
 
-    # 🔥 NORMALIZE (INI KUNCI MASALAH LU)
     db["No_Reg"] = normalize_noreg(db["No_Reg"])
     df_input["No_Reg"] = normalize_noreg(df_input["No_Reg"])
 
-    # STATUS
-    db["status"] = db["State"].fillna("") + db["State1"].fillna("")
+    # =============================
+    # STATUS GABUNGAN
+    # =============================
+    db["status"] = db["State"].fillna("") + " " + db["State1"].fillna("")
 
     # MERGE
     df = df_input.merge(db, on="No_Reg", how="left")
 
-    # =============================
-    # DEBUG (hapus nanti)
-    # =============================
     st.write("MATCH CHECK:", df_input["No_Reg"].isin(db["No_Reg"]))
 
     # =============================
@@ -199,38 +195,63 @@ if not db.empty and not df_input.empty:
 
     df["kategori_od"] = df["hari"].apply(kategori)
 
-    # STATUS LUNAS
-    df["is_lunas"] = df["status"].str.contains("OVOP", na=False)
+    # =============================
+    # DETEKSI LUNAS (🔥 FIX)
+    # =============================
+    df["is_lunas"] = df["status"].str.contains("OV|OP", na=False)
 
+    # SORT
     df = df.sort_values(by=["is_lunas", "hari"], ascending=[True, False])
 
-    # DISPLAY
-    df_display = df[[
-        "No_Reg", "kategori_od", "Nama_Cust", "Type",
-        "Dealer", "Sales_ACC", "Brand", "status", "AF", "hari"
-    ]]
-
-    # DASHBOARD
+    # =============================
+    # DASHBOARD (AKTIF SAJA)
+    # =============================
     st.subheader("📊 Dashboard")
 
     col1, col2, col3 = st.columns(3)
+    df_aktif = df[~df["is_lunas"]]
 
     for i, k in enumerate(["OD 1", "OD 2", "OD 3"]):
-        d = df[df["kategori_od"] == k]
+        d = df_aktif[df_aktif["kategori_od"] == k]
         total = len(d)
         af_sum = pd.to_numeric(d["AF"], errors="coerce").sum()
 
         with [col1, col2, col3][i]:
             st.metric(k, f"{total} account", f"AF: {int(af_sum):,}")
 
-    # TABLE
+    # =============================
+    # HIGHLIGHT
+    # =============================
     def highlight(row):
-        if "OVOP" in str(row["status"]):
-            return ["background-color: green"] * len(row)
+        if re.search("OV|OP", str(row["status"])):
+            return ["background-color: #14532d; color: white"] * len(row)
         return [""] * len(row)
 
-    st.subheader("📋 Data Monitoring")
-    st.dataframe(df_display.style.apply(highlight, axis=1), use_container_width=True)
+    cols = [
+        "No_Reg", "kategori_od", "Nama_Cust", "Type",
+        "Dealer", "Sales_ACC", "Brand", "status", "AF", "hari"
+    ]
+
+    # =============================
+    # DATA AKTIF
+    # =============================
+    st.subheader("📋 Data Monitoring (Aktif)")
+    st.dataframe(
+        df_aktif[cols].style.apply(highlight, axis=1),
+        use_container_width=True
+    )
+
+    # =============================
+    # DATA LUNAS
+    # =============================
+    st.subheader("✅ Data Lunas (OV / OP)")
+
+    df_lunas = df[df["is_lunas"]]
+
+    st.dataframe(
+        df_lunas[cols].style.apply(highlight, axis=1),
+        use_container_width=True
+    )
 
 else:
     st.warning("⚠️ Upload DB ASCII dulu atau input data")
