@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 from supabase import create_client
 from datetime import datetime
 import os
@@ -40,16 +41,29 @@ def insert_input(noreg, tgl_invoice):
         st.error(f"❌ Error Insert: {e}")
 
 # =============================
-# KATEGORI OD (renamed agar tidak konflik)
+# CLEAN FOR JSON
+# =============================
+def clean_for_json(df):
+    df = df.copy()
+    for col in df.columns:
+        if pd.api.types.is_datetime64_any_dtype(df[col]):
+            df[col] = df[col].dt.strftime("%Y-%m-%d")
+        df[col] = df[col].where(pd.notna(df[col]), other=None)
+        if pd.api.types.is_integer_dtype(df[col]):
+            df[col] = df[col].astype(object)
+    return df
+
+# =============================
+# KATEGORI OD
 # =============================
 def get_kategori_od(h):
     if h < 15:
         return "Belum OD"
-    elif h <= 45:
+    elif h <= 45:      # 15–45 → OD 1
         return "OD 1"
-    elif h <= 75:
+    elif h <= 75:      # 46–75 → OD 2
         return "OD 2"
-    else:
+    elif h >= 76:      # >= 76 → OD 3
         return "OD 3"
 
 # =============================
@@ -72,10 +86,10 @@ if uploaded_file:
         st.dataframe(df_upload.head())
 
         if st.button("🚀 Upload ke DB"):
-            data = df_upload.to_dict(orient="records")
+            df_clean = clean_for_json(df_upload)
+            data = df_clean.to_dict(orient="records")
 
             for i in range(0, len(data), 500):
-                # ✅ FIX: pakai upsert agar tidak duplikat
                 supabase.table("db_ascii").upsert(
                     data[i:i+500],
                     on_conflict="No_Reg"
@@ -136,22 +150,19 @@ if not db.empty and not df_input.empty:
     # HITUNG OD
     # =============================
     df["Tanggal_Invoice"] = pd.to_datetime(df["Tanggal_Invoice"])
-    today = pd.to_datetime(datetime.now().date())  # ✅ FIX: pakai now()
+    today = pd.to_datetime(datetime.now().date())
 
     df["hari"] = (today - df["Tanggal_Invoice"]).dt.days
-
-    # ✅ FIX: pakai nama fungsi baru
     df["kategori_od"] = df["hari"].apply(get_kategori_od)
 
     # =============================
     # STATUS LUNAS
     # =============================
     df["is_lunas"] = df["status"].str.contains("OVOP", na=False)
-
     df = df.sort_values(by=["is_lunas", "hari"], ascending=[True, False])
 
     # =============================
-    # DISPLAY - ✅ FIX: cek kolom exist dulu
+    # DISPLAY
     # =============================
     desired_cols = [
         "No_Reg", "kategori_od", "Nama_Cust", "Type",
@@ -171,7 +182,6 @@ if not db.empty and not df_input.empty:
         data_od = df[df["kategori_od"] == kategori_name]
         total = len(data_od)
 
-        # ✅ FIX: cek kolom AF ada dulu
         if "AF" in df.columns:
             af_sum = pd.to_numeric(data_od["AF"], errors="coerce").sum()
             af_label = f"AF: {int(af_sum):,}"
