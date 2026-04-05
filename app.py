@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 from supabase import create_client
-from datetime import datetime
 
 # =============================
 # 🔑 SUPABASE CONFIG
@@ -16,35 +15,35 @@ st.set_page_config(page_title="Monitoring OD", layout="wide")
 st.title("📊 Sistem Monitoring OD")
 
 # =============================
-# 📥 LOAD DATABASE ASCII (SUPABASE)
+# LOAD DB ASCII
 # =============================
 def load_db():
     try:
         res = supabase.table("db_ascii").select("*").execute()
         return pd.DataFrame(res.data)
-    except:
+    except Exception as e:
+        st.error(f"DB ASCII ERROR: {e}")
         return pd.DataFrame()
 
 # =============================
-# 📥 LOAD INPUT USER
+# LOAD INPUT
 # =============================
 def load_input():
     try:
         res = supabase.table("input_data").select("*").execute()
         return pd.DataFrame(res.data)
-    except:
+    except Exception as e:
+        st.error(f"INPUT ERROR: {e}")
         return pd.DataFrame()
 
 # =============================
-# 📤 UPLOAD DATABASE ASCII
+# UPLOAD DB ASCII
 # =============================
 def upload_db(df):
     df = df.drop_duplicates(subset=["no_kontrak"])
 
-    # 🔥 convert semua ke string
     df = df.astype(str)
 
-    # 🔥 bersihin value rusak
     df = df.replace({
         "nan": None,
         "NaT": None,
@@ -52,7 +51,6 @@ def upload_db(df):
         "": None
     })
 
-    # 🔥 fix tanggal
     if "tanggal_valid" in df.columns:
         df["tanggal_valid"] = pd.to_datetime(
             df["tanggal_valid"], errors="coerce"
@@ -60,39 +58,43 @@ def upload_db(df):
 
     data = df.to_dict(orient="records")
 
-    # 🔥 insert per row biar ga error massal
     for row in data:
         try:
             supabase.table("db_ascii").insert(row).execute()
-        except:
+        except Exception as e:
             pass
 
 # =============================
-# 📤 INSERT INPUT USER
+# INSERT INPUT (🔥 FIXED)
 # =============================
 def insert_input(no_kontrak, tgl_invoice):
-    supabase.table("input_data").insert({
-        "no_kontrak": str(no_kontrak),
-        "tgl_invoice": str(tgl_invoice)
-    }).execute()
+    try:
+        supabase.table("input_data").insert({
+            "no_kontrak": str(no_kontrak),
+            "tgl_invoice": pd.to_datetime(tgl_invoice).strftime("%Y-%m-%d")
+        }).execute()
+    except Exception as e:
+        st.error(f"Gagal insert: {e}")
 
 # =============================
-# 📤 DELETE INPUT
+# DELETE INPUT
 # =============================
 def delete_input(id):
-    supabase.table("input_data").delete().eq("id", id).execute()
+    try:
+        supabase.table("input_data").delete().eq("id", id).execute()
+    except Exception as e:
+        st.error(f"Gagal delete: {e}")
 
 # =============================
-# 📂 UPLOAD ASCII (SEKALI SAJA)
+# UPLOAD ASCII
 # =============================
 st.subheader("📤 Upload Database (sekali saja)")
 
-db_file = st.file_uploader("Upload file ASCII", type=["xlsx", "xls"])
+db_file = st.file_uploader("Upload ASCII", type=["xlsx", "xls"])
 
 if db_file:
     db = pd.read_excel(db_file)
 
-    # rename sesuai database
     db = db.rename(columns={
         "NoReg": "no_kontrak",
         "NamaCust": "nama_cust",
@@ -101,12 +103,12 @@ if db_file:
     })
 
     upload_db(db)
-    st.success("✅ Database berhasil disimpan ke Supabase!")
+    st.success("✅ DB berhasil disimpan")
 
 # =============================
-# 📥 INPUT USER
+# INPUT USER
 # =============================
-st.subheader("📝 Input Data Invoice")
+st.subheader("📝 Input Invoice")
 
 col1, col2, col3 = st.columns(3)
 
@@ -120,11 +122,11 @@ with col3:
     if st.button("Tambah"):
         if no_kontrak:
             insert_input(no_kontrak, tgl_invoice)
-            st.success("Data masuk!")
+            st.success("✅ Data masuk")
             st.rerun()
 
 # =============================
-# 📊 LOAD DATA
+# LOAD DATA
 # =============================
 db = load_db()
 df_input = load_input()
@@ -140,9 +142,6 @@ if not df_input.empty and not db.empty:
         how="left"
     )
 
-    # =============================
-    # 🧠 HITUNG OD
-    # =============================
     df["tgl_invoice"] = pd.to_datetime(df["tgl_invoice"], errors="coerce")
     df["tanggal_valid"] = pd.to_datetime(df["tanggal_valid"], errors="coerce")
 
@@ -162,18 +161,12 @@ if not df_input.empty and not db.empty:
 
     df["kategori_od"] = df["selisih_hari"].apply(kategori)
 
-    # =============================
-    # 🔥 SORT (BELUM BAYAR DI ATAS)
-    # =============================
     df["status_sort"] = df["status_bayar"].apply(
         lambda x: 1 if x == "LUNAS" else 0
     )
 
     df = df.sort_values(by=["status_sort", "selisih_hari"], ascending=[True, False])
 
-    # =============================
-    # 🎨 HIGHLIGHT LUNAS
-    # =============================
     def highlight(row):
         if row["status_bayar"] == "LUNAS":
             return ["background-color: red"] * len(row)
@@ -182,9 +175,6 @@ if not df_input.empty and not db.empty:
     st.subheader("📋 Data Monitoring")
     st.dataframe(df.style.apply(highlight, axis=1), use_container_width=True)
 
-    # =============================
-    # ❌ DELETE DATA
-    # =============================
     st.subheader("🗑️ Hapus Data")
 
     for i, row in df.iterrows():
@@ -193,4 +183,4 @@ if not df_input.empty and not db.empty:
             st.rerun()
 
 else:
-    st.warning("⚠️ Data belum lengkap (upload ASCII dulu atau input data)")
+    st.warning("⚠️ Upload DB dulu + input data")
