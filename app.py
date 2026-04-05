@@ -124,8 +124,6 @@ uploaded_file = st.file_uploader(
 )
 
 if uploaded_file:
-    # processing di sini
-if uploaded_file:
 
     try:
         df_excel = pd.read_excel(uploaded_file)
