@@ -1,41 +1,23 @@
 import streamlit as st
 import pandas as pd
-from io import BytesIO
 from supabase import create_client
+from datetime import datetime
 
-st.set_page_config(page_title="Monitoring OD", layout="wide")
-
-st.title("📊 Sistem Monitoring OD")
-
-# =========================
-# SUPABASE
-# =========================
+# =============================
+# 🔑 SUPABASE CONFIG
+# =============================
 SUPABASE_URL = "https://jrikxltaaxlipbgturju.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpyaWt4bHRhYXhsaXBiZ3R1cmp1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUyODMxNzEsImV4cCI6MjA5MDg1OTE3MX0.gloC3nfdIx7q9rV8kEXcKsAaZpJB9nOeyvRRS4yY-6U"
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# =========================
-# FUNCTION
-# =========================
-def insert_data(no_kontrak, tgl_invoice):
-    supabase.table("input_data").insert({
-        "no_kontrak": str(no_kontrak),
-        "tgl_invoice": str(tgl_invoice)
-    }).execute()
+st.set_page_config(page_title="Monitoring OD", layout="wide")
 
-def load_input():
-    try:
-        res = supabase.table("input_data").select("*").execute()
-        df = pd.DataFrame(res.data)
+st.title("📊 Sistem Monitoring OD")
 
-        if not df.empty:
-            df["tgl_invoice"] = pd.to_datetime(df["tgl_invoice"], errors="coerce")
-
-        return df
-    except:
-        return pd.DataFrame()
-
+# =============================
+# 📥 LOAD DATABASE ASCII (SUPABASE)
+# =============================
 def load_db():
     try:
         res = supabase.table("db_ascii").select("*").execute()
@@ -43,182 +25,172 @@ def load_db():
     except:
         return pd.DataFrame()
 
-# 🔥 FIX TOTAL UPLOAD (ANTI ERROR)
+# =============================
+# 📥 LOAD INPUT USER
+# =============================
+def load_input():
+    try:
+        res = supabase.table("input_data").select("*").execute()
+        return pd.DataFrame(res.data)
+    except:
+        return pd.DataFrame()
+
+# =============================
+# 📤 UPLOAD DATABASE ASCII
+# =============================
 def upload_db(df):
     df = df.drop_duplicates(subset=["no_kontrak"])
 
-    # bersihin data
-    df = df.replace({pd.NA: None})
-    df = df.replace({float("nan"): None})
+    # 🔥 convert semua ke string
+    df = df.astype(str)
 
-    # fix tanggal
+    # 🔥 bersihin value rusak
+    df = df.replace({
+        "nan": None,
+        "NaT": None,
+        "None": None,
+        "": None
+    })
+
+    # 🔥 fix tanggal
     if "tanggal_valid" in df.columns:
         df["tanggal_valid"] = pd.to_datetime(
             df["tanggal_valid"], errors="coerce"
         ).dt.strftime("%Y-%m-%d")
 
-    # convert semua ke string / None
-    for col in df.columns:
-        df[col] = df[col].apply(lambda x: str(x) if x not in [None, "None"] else None)
-
     data = df.to_dict(orient="records")
 
-    # 🔥 batch biar aman
-    batch_size = 500
-    for i in range(0, len(data), batch_size):
-        supabase.table("db_ascii").insert(data[i:i+batch_size]).execute()
+    # 🔥 insert per row biar ga error massal
+    for row in data:
+        try:
+            supabase.table("db_ascii").insert(row).execute()
+        except:
+            pass
 
-# =========================
-# LOAD DB
-# =========================
-db = load_db()
+# =============================
+# 📤 INSERT INPUT USER
+# =============================
+def insert_input(no_kontrak, tgl_invoice):
+    supabase.table("input_data").insert({
+        "no_kontrak": str(no_kontrak),
+        "tgl_invoice": str(tgl_invoice)
+    }).execute()
 
-# =========================
-# UPLOAD (CUMA SEKALI)
-# =========================
-if db.empty:
-    st.subheader("📥 Upload Database (sekali saja)")
+# =============================
+# 📤 DELETE INPUT
+# =============================
+def delete_input(id):
+    supabase.table("input_data").delete().eq("id", id).execute()
 
-    file = st.file_uploader("Upload Database ASCII", type=["xlsx", "xls"])
+# =============================
+# 📂 UPLOAD ASCII (SEKALI SAJA)
+# =============================
+st.subheader("📤 Upload Database (sekali saja)")
 
-    if file:
-        db = pd.read_excel(file)
+db_file = st.file_uploader("Upload file ASCII", type=["xlsx", "xls"])
 
-        # 🔥 bersihin kolom
-        db.columns = (
-            db.columns.str.strip()
-            .str.lower()
-            .str.replace(" ", "")
-            .str.replace("'", "")
-        )
+if db_file:
+    db = pd.read_excel(db_file)
 
-        mapping = {
-            "noreg": "no_kontrak",
-            "namacust": "nama_cust",
-            "tglvld": "tanggal_valid",
-            "tglvalid": "tanggal_valid",
-            "state": "status_bayar"
-        }
+    # rename sesuai database
+    db = db.rename(columns={
+        "NoReg": "no_kontrak",
+        "NamaCust": "nama_cust",
+        "TglVld": "tanggal_valid",
+        "State": "status_bayar"
+    })
 
-        db.rename(columns={k: v for k, v in mapping.items() if k in db.columns}, inplace=True)
+    upload_db(db)
+    st.success("✅ Database berhasil disimpan ke Supabase!")
 
-        upload_db(db)
+# =============================
+# 📥 INPUT USER
+# =============================
+st.subheader("📝 Input Data Invoice")
 
-        st.success("Database berhasil disimpan ✅")
-        st.rerun()
-
-# =========================
-# LOAD DB ULANG
-# =========================
-db = load_db()
-
-if db.empty:
-    st.warning("⚠️ Database belum tersedia")
-    st.stop()
-
-# =========================
-# INPUT USER
-# =========================
-st.subheader("📥 Input Data Harian")
-
-col1, col2 = st.columns(2)
+col1, col2, col3 = st.columns(3)
 
 with col1:
-    no_reg = st.text_input("NoReg")
+    no_kontrak = st.text_input("No Kontrak")
 
 with col2:
     tgl_invoice = st.date_input("Tanggal Invoice")
 
-if st.button("➕ Tambah Data"):
-    if no_reg:
-        insert_data(no_reg, tgl_invoice)
-        st.success("Data berhasil ditambahkan ✅")
-        st.rerun()
+with col3:
+    if st.button("Tambah"):
+        if no_kontrak:
+            insert_input(no_kontrak, tgl_invoice)
+            st.success("Data masuk!")
+            st.rerun()
 
-# =========================
-# LOAD INPUT
-# =========================
-df = load_input()
+# =============================
+# 📊 LOAD DATA
+# =============================
+db = load_db()
+df_input = load_input()
 
-if not df.empty:
+if not df_input.empty and not db.empty:
 
-    df["no_kontrak"] = df["no_kontrak"].astype(str).str.strip()
-    db["no_kontrak"] = db["no_kontrak"].astype(str).str.strip()
+    df_input["no_kontrak"] = df_input["no_kontrak"].astype(str)
+    db["no_kontrak"] = db["no_kontrak"].astype(str)
 
-    # =========================
-    # VLOOKUP
-    # =========================
-    df = df.merge(
+    df = df_input.merge(
         db[["no_kontrak", "nama_cust", "tanggal_valid", "status_bayar"]],
         on="no_kontrak",
         how="left"
     )
 
-    # =========================
-    # HITUNG
-    # =========================
+    # =============================
+    # 🧠 HITUNG OD
+    # =============================
+    df["tgl_invoice"] = pd.to_datetime(df["tgl_invoice"], errors="coerce")
     df["tanggal_valid"] = pd.to_datetime(df["tanggal_valid"], errors="coerce")
-    df["selisih_hari"] = (df["tanggal_valid"] - df["tgl_invoice"]).dt.days
+
+    df["selisih_hari"] = (df["tgl_invoice"] - df["tanggal_valid"]).dt.days
 
     def kategori(x):
         if pd.isna(x):
             return "Tidak Valid"
-        elif 15 <= x <= 45:
-            return "OD1"
-        elif 46 <= x <= 75:
-            return "OD2"
-        elif x > 75:
-            return "OD3"
-        else:
+        elif x <= 0:
             return "Tidak Masuk OD"
+        elif x <= 30:
+            return "OD 1-30"
+        elif x <= 60:
+            return "OD 31-60"
+        else:
+            return "OD > 60"
 
     df["kategori_od"] = df["selisih_hari"].apply(kategori)
 
-    # =========================
-    # PRIORITAS + CA
-    # =========================
-    order = {"OD3": 1, "OD2": 2, "OD1": 3, "Tidak Masuk OD": 4, "Tidak Valid": 5}
-    df["priority"] = df["kategori_od"].map(order)
-
-    # 🔥 CA paling bawah
-    df.loc[df["status_bayar"].str.upper() == "CA", "priority"] = 99
-
-    df = df.sort_values("priority")
-
-    # =========================
-    # 🔴 HIGHLIGHT
-    # =========================
-    def highlight(row):
-        if str(row["status_bayar"]).upper() == "CA":
-            return ["background-color: #ff4d4d"] * len(row)
-        elif row["kategori_od"] == "OD3":
-            return ["background-color: #ff9999"] * len(row)
-        elif row["kategori_od"] == "OD2":
-            return ["background-color: #ffe066"] * len(row)
-        elif row["kategori_od"] == "OD1":
-            return ["background-color: #b3ffb3"] * len(row)
-        else:
-            return [""] * len(row)
-
-    styled_df = df.style.apply(highlight, axis=1)
-
-    # =========================
-    # TAMPIL
-    # =========================
-    st.subheader("📋 Data Monitoring")
-    st.write(styled_df)
-
-    # =========================
-    # DOWNLOAD
-    # =========================
-    def to_excel(data):
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine="openpyxl") as writer:
-            data.to_excel(writer, index=False)
-        return output.getvalue()
-
-    st.download_button(
-        "📥 Download Excel",
-        to_excel(df),
-        file_name="monitoring_od.xlsx"
+    # =============================
+    # 🔥 SORT (BELUM BAYAR DI ATAS)
+    # =============================
+    df["status_sort"] = df["status_bayar"].apply(
+        lambda x: 1 if x == "LUNAS" else 0
     )
+
+    df = df.sort_values(by=["status_sort", "selisih_hari"], ascending=[True, False])
+
+    # =============================
+    # 🎨 HIGHLIGHT LUNAS
+    # =============================
+    def highlight(row):
+        if row["status_bayar"] == "LUNAS":
+            return ["background-color: red"] * len(row)
+        return [""] * len(row)
+
+    st.subheader("📋 Data Monitoring")
+    st.dataframe(df.style.apply(highlight, axis=1), use_container_width=True)
+
+    # =============================
+    # ❌ DELETE DATA
+    # =============================
+    st.subheader("🗑️ Hapus Data")
+
+    for i, row in df.iterrows():
+        if st.button(f"Hapus {row['no_kontrak']}", key=i):
+            delete_input(row["id"])
+            st.rerun()
+
+else:
+    st.warning("⚠️ Data belum lengkap (upload ASCII dulu atau input data)")
