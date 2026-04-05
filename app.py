@@ -28,8 +28,10 @@ def load_input():
     try:
         res = supabase.table("input_data").select("*").execute()
         df = pd.DataFrame(res.data)
+
         if not df.empty:
             df["tgl_invoice"] = pd.to_datetime(df["tgl_invoice"], errors="coerce")
+
         return df
     except:
         return pd.DataFrame()
@@ -41,12 +43,25 @@ def load_db():
     except:
         return pd.DataFrame()
 
+# 🔥 FIX JSON ERROR DI SINI
 def upload_db(df):
     df = df.drop_duplicates(subset=["no_kontrak"])
 
-    supabase.table("db_ascii").insert(
-        df.to_dict(orient="records")
-    ).execute()
+    # hilangkan NaN
+    df = df.fillna("")
+
+    # convert tanggal ke string
+    if "tanggal_valid" in df.columns:
+        df["tanggal_valid"] = pd.to_datetime(
+            df["tanggal_valid"], errors="coerce"
+        ).astype(str)
+
+    # convert semua ke string (biar aman JSON)
+    df = df.astype(str)
+
+    data = df.to_dict(orient="records")
+
+    supabase.table("db_ascii").insert(data).execute()
 
 # =========================
 # LOAD DATABASE
@@ -54,7 +69,7 @@ def upload_db(df):
 db = load_db()
 
 # =========================
-# UPLOAD ASCII (CUMA KALO KOSONG)
+# UPLOAD ASCII (HANYA KALO KOSONG)
 # =========================
 if db.empty:
     st.subheader("📥 Upload Database (sekali saja)")
@@ -64,7 +79,7 @@ if db.empty:
     if file:
         db = pd.read_excel(file)
 
-        # 🔥 bersihin kolom
+        # bersihin kolom
         db.columns = (
             db.columns.str.strip()
             .str.lower()
@@ -72,7 +87,7 @@ if db.empty:
             .str.replace("'", "")
         )
 
-        # mapping nama kolom
+        # mapping kolom
         mapping = {
             "noreg": "no_kontrak",
             "namacust": "nama_cust",
@@ -83,16 +98,13 @@ if db.empty:
 
         db.rename(columns={k: v for k, v in mapping.items() if k in db.columns}, inplace=True)
 
-        # convert tanggal
-        db["tanggal_valid"] = pd.to_datetime(db["tanggal_valid"], errors="coerce")
-
         upload_db(db)
 
         st.success("Database berhasil disimpan ✅")
         st.rerun()
 
 # =========================
-# LOAD LAGI SETELAH UPLOAD
+# LOAD LAGI
 # =========================
 db = load_db()
 
@@ -141,6 +153,7 @@ if not df.empty:
     # =========================
     # HITUNG SELISIH
     # =========================
+    df["tanggal_valid"] = pd.to_datetime(df["tanggal_valid"], errors="coerce")
     df["selisih_hari"] = (df["tanggal_valid"] - df["tgl_invoice"]).dt.days
 
     # =========================
@@ -161,7 +174,7 @@ if not df.empty:
     df["kategori_od"] = df["selisih_hari"].apply(kategori)
 
     # =========================
-    # PRIORITAS SORT
+    # PRIORITAS
     # =========================
     order = {
         "OD3": 1,
