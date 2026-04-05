@@ -8,22 +8,22 @@ st.set_page_config(page_title="Monitoring OD System", layout="wide")
 st.title("📊 Sistem Monitoring OD")
 
 # =========================
-# 🔑 SUPABASE CONFIG
+# 🔑 SUPABASE (PAKE SECRETS)
 # =========================
-SUPABASE_URL = "https://jrikxltaaxlipbgturju.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpyaWt4bHRhYXhsaXBiZ3R1cmp1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUyODMxNzEsImV4cCI6MjA5MDg1OTE3MX0.gloC3nfdIx7q9rV8kEXcKsAaZpJB9nOeyvRRS4yY-6U"
+SUPABASE_URL = st.secrets["SUPABASE_URL"]
+SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # =========================
-# 📥 DATABASE ASCII (UPLOAD)
+# 📥 UPLOAD DATABASE ASCII
 # =========================
 db_file = st.file_uploader("Upload Database ASCII", type=["xlsx", "xls"])
 
 if db_file:
     db = pd.read_excel(db_file)
 
-    # bersihin kolom
+    # bersihin nama kolom
     db.columns = (
         db.columns.str.strip()
         .str.lower()
@@ -42,7 +42,8 @@ if db_file:
 
     db.rename(columns={k: v for k, v in mapping.items() if k in db.columns}, inplace=True)
 
-    db["tanggal_valid"] = pd.to_datetime(db["tanggal_valid"], errors='coerce')
+    # convert tanggal
+    db["tanggal_valid"] = pd.to_datetime(db["tanggal_valid"], errors="coerce")
 
     st.success("Database ASCII loaded ✅")
 
@@ -50,17 +51,17 @@ if db_file:
     # 🔥 FUNCTION SUPABASE
     # =========================
     def insert_data(no_kontrak, tgl_invoice):
-        supabase.table("input_data").insert({
-            "no_kontrak": no_kontrak,
+        supabase.table("input_table").insert({
+            "no_kontrak": str(no_kontrak),
             "tgl_invoice": str(tgl_invoice)
         }).execute()
 
     def load_data():
-        res = supabase.table("input_data").select("*").execute()
+        res = supabase.table("input_table").select("*").execute()
         df = pd.DataFrame(res.data)
 
         if not df.empty:
-            df["tgl_invoice"] = pd.to_datetime(df["tgl_invoice"])
+            df["tgl_invoice"] = pd.to_datetime(df["tgl_invoice"], errors="coerce")
 
         return df
 
@@ -90,6 +91,12 @@ if db_file:
     if not df.empty:
 
         # =========================
+        # 🔥 FIX TIPE DATA (WAJIB)
+        # =========================
+        df["no_kontrak"] = df["no_kontrak"].astype(str).str.strip()
+        db["no_kontrak"] = db["no_kontrak"].astype(str).str.strip()
+
+        # =========================
         # 🔗 VLOOKUP (MERGE)
         # =========================
         df = df.merge(
@@ -99,10 +106,13 @@ if db_file:
         )
 
         # =========================
-        # 📊 HITUNG
+        # 📊 HITUNG SELISIH
         # =========================
         df["selisih_hari"] = (df["tanggal_valid"] - df["tgl_invoice"]).dt.days
 
+        # =========================
+        # 🧠 KLASIFIKASI OD
+        # =========================
         def klasifikasi_od(x):
             if pd.isna(x):
                 return "Tidak Valid"
@@ -130,8 +140,8 @@ if db_file:
 
         df["priority"] = df["kategori_od"].map(order_map)
 
-        # kalau sudah bayar → paling bawah
-        df["paid_flag"] = df["status_bayar"].astype(str).str.lower().str.contains("ov")
+        # 🔴 kalau sudah bayar (STATE = OV)
+        df["paid_flag"] = df["status_bayar"].astype(str).str.upper().str.contains("OV")
 
         df = df.sort_values(["paid_flag", "priority"])
 
@@ -159,11 +169,11 @@ if db_file:
         st.write(styled_df)
 
         # =========================
-        # 📥 DOWNLOAD
+        # 📥 DOWNLOAD EXCEL
         # =========================
         def to_excel(data):
             output = BytesIO()
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            with pd.ExcelWriter(output, engine="openpyxl") as writer:
                 data.to_excel(writer, index=False)
             return output.getvalue()
 
