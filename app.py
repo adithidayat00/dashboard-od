@@ -57,7 +57,7 @@ def load_input():
 def insert_input(noreg, tgl_invoice):
     try:
         supabase.table("input_data").insert({
-            "No_Reg": str(noreg),
+            "No_Reg": str(noreg).strip(),
             "Tanggal_Invoice": pd.to_datetime(tgl_invoice).strftime("%Y-%m-%d")
         }).execute()
         st.success("✅ Data berhasil ditambahkan")
@@ -165,15 +165,18 @@ if uploaded_file:
             df_upload = df_upload[df_upload["No_Reg"].notna()]
             df_upload = df_upload[df_upload["No_Reg"].astype(str).str.strip() != ""]
 
-            # 4. Filter hanya kolom valid
+            # 4. Bersihkan whitespace di No_Reg
+            df_upload["No_Reg"] = df_upload["No_Reg"].astype(str).str.strip()
+
+            # 5. Filter hanya kolom valid
             valid_cols = [c for c in df_upload.columns if c in VALID_DB_COLUMNS]
             df_upload = df_upload[valid_cols]
             st.info(f"📌 Kolom yang diupload: {valid_cols}")
 
-            # 5. Bersihkan nilai
+            # 6. Bersihkan nilai
             data = clean_for_json(df_upload)
 
-            # 6. Upload batch
+            # 7. Upload batch
             for i in range(0, len(data), 500):
                 supabase.table("db_ascii").upsert(
                     data[i:i+500],
@@ -216,15 +219,15 @@ df_input = load_input()
 if not db.empty and not df_input.empty:
 
     # =============================
-    # FORMAT DATA
+    # FORMAT DATA + STRIP WHITESPACE
     # =============================
-    db["No_Reg"] = db["No_Reg"].astype(str)
-    df_input["No_Reg"] = df_input["No_Reg"].astype(str)
+    db["No_Reg"] = db["No_Reg"].astype(str).str.strip()
+    df_input["No_Reg"] = df_input["No_Reg"].astype(str).str.strip()
 
     # =============================
     # STATUS
     # =============================
-    db["status"] = db["State"].fillna("") + db["State1"].fillna("")
+    db["status"] = db["State"].fillna("").str.strip() + db["State1"].fillna("").str.strip()
 
     # =============================
     # MERGE
