@@ -26,6 +26,21 @@ VALID_DB_COLUMNS = [
 ]
 
 # =============================
+# RENAME MAP Excel → Supabase
+# =============================
+RENAME_MAP = {
+    "NoReg"      : "No_Reg",
+    "NamaCust"   : "Nama_Cust",
+    "NamaDealer" : "Dealer",
+    "SalesACC"   : "Sales_ACC",
+    "Merk"       : "Brand",
+    "type"       : "Type",
+    "Sta"        : "State",
+    "StatY"      : "State1",
+    "AF"         : "AF",
+}
+
+# =============================
 # LOAD DATA
 # =============================
 def load_db():
@@ -143,19 +158,22 @@ if uploaded_file:
             # 1. Bersihkan nama kolom
             df_upload = clean_columns(df_upload)
 
-            # 2. Hapus baris yang No_Reg kosong
+            # 2. Rename kolom Excel → Supabase
+            df_upload = df_upload.rename(columns=RENAME_MAP)
+
+            # 3. Hapus baris yang No_Reg kosong
             df_upload = df_upload[df_upload["No_Reg"].notna()]
             df_upload = df_upload[df_upload["No_Reg"].astype(str).str.strip() != ""]
 
-            # 3. Filter hanya kolom valid
+            # 4. Filter hanya kolom valid
             valid_cols = [c for c in df_upload.columns if c in VALID_DB_COLUMNS]
             df_upload = df_upload[valid_cols]
             st.info(f"📌 Kolom yang diupload: {valid_cols}")
 
-            # 4. Bersihkan nilai
+            # 5. Bersihkan nilai
             data = clean_for_json(df_upload)
 
-            # 5. Upload batch
+            # 6. Upload batch
             for i in range(0, len(data), 500):
                 supabase.table("db_ascii").upsert(
                     data[i:i+500],
