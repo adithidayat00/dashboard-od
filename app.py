@@ -116,6 +116,15 @@ if not df.empty:
 # =========================
 # UPLOAD EXCEL MASTER DATA
 # =========================
+st.subheader("📤 Upload Master Data (db_ascii)")
+
+uploaded_file = st.file_uploader(
+    "Upload Excel (xlsx / xls)",
+    type=["xlsx", "xls"]
+)
+
+if uploaded_file:
+    # processing di sini
 if uploaded_file:
 
     try:
