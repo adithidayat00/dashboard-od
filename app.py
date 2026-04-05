@@ -29,6 +29,34 @@ def normalize_noreg(series):
     )
 
 # =============================
+# AUTO COLUMN MAPPING 🔥
+# =============================
+def auto_map_columns(df):
+    mapping_patterns = {
+        "No_Reg": ["noreg", "no_reg", "no reg"],
+        "Nama_Cust": ["nama", "customer", "nama_cust"],
+        "Dealer": ["dealer", "dealername"],
+        "Sales_ACC": ["sales", "salesacc", "sales_acc"],
+        "Brand": ["brand", "merk"],
+        "Type": ["type", "typeunit"],
+        "State": ["state", "sta"],
+        "State1": ["state1", "staty"],
+        "AF": ["af"]
+    }
+
+    new_columns = {}
+
+    for col in df.columns:
+        col_clean = col.lower().replace(" ", "").replace("_", "")
+
+        for target, keywords in mapping_patterns.items():
+            if any(k in col_clean for k in keywords):
+                new_columns[col] = target
+
+    df = df.rename(columns=new_columns)
+    return df
+
+# =============================
 # LOAD DATA
 # =============================
 def load_db():
@@ -51,34 +79,6 @@ def insert_input(noreg, tgl_invoice):
         st.success("✅ Data berhasil ditambahkan")
     except Exception as e:
         st.error(f"❌ Error Insert: {e}")
-
-# =============================
-# CLEAN COLUMN
-# =============================
-def clean_columns(df):
-    df.columns = (
-        df.columns.str.strip()
-        .str.replace(" ", "_")
-        .str.replace(r"[^\w]", "", regex=True)
-    )
-    return df
-
-# =============================
-# RENAME MAP
-# =============================
-RENAME_MAP = {
-    "NoReg": "No_Reg",
-    "NOREG": "No_Reg",
-    "NamaCust": "Nama_Cust",
-    "Nama_Customer": "Nama_Cust",
-    "DealerName": "Dealer",
-    "SalesACC": "Sales_ACC",
-    "BrandName": "Brand",
-    "Merk": "Brand",
-    "TypeUnit": "Type",
-    "STA": "State",
-    "STATY": "State1"
-}
 
 # =============================
 # CLEAN JSON
@@ -112,12 +112,24 @@ if uploaded_file:
         st.dataframe(df_upload.head())
 
         if st.button("🚀 Upload ke DB"):
-            df_upload = clean_columns(df_upload)
-            df_upload = df_upload.rename(columns=RENAME_MAP)
+
+            # 🔥 AUTO MAP
+            df_upload = auto_map_columns(df_upload)
+
+            # 🔥 VALIDASI WAJIB
+            if "No_Reg" not in df_upload.columns:
+                st.error("❌ Kolom No_Reg tidak ditemukan!")
+                st.stop()
 
             df_upload["No_Reg"] = normalize_noreg(df_upload["No_Reg"])
             df_upload = df_upload[df_upload["No_Reg"].notna()]
             df_upload = df_upload[df_upload["No_Reg"] != ""]
+
+            # 🔥 FILTER KOLOM SESUAI DB
+            db_sample = load_db()
+            if not db_sample.empty:
+                db_columns = db_sample.columns.tolist()
+                df_upload = df_upload[[col for col in df_upload.columns if col in db_columns]]
 
             data = clean_for_json(df_upload)
 
@@ -173,6 +185,7 @@ if not db.empty and not df_input.empty:
     # MERGE
     df = df_input.merge(db, on="No_Reg", how="left")
 
+    # DEBUG
     st.write("MATCH CHECK:", df_input["No_Reg"].isin(db["No_Reg"]))
 
     # =============================
@@ -196,7 +209,7 @@ if not db.empty and not df_input.empty:
     df["kategori_od"] = df["hari"].apply(kategori)
 
     # =============================
-    # DETEKSI LUNAS (🔥 FIX)
+    # DETEKSI LUNAS
     # =============================
     df["is_lunas"] = df["status"].str.contains("OV|OP", na=False)
 
@@ -204,7 +217,7 @@ if not db.empty and not df_input.empty:
     df = df.sort_values(by=["is_lunas", "hari"], ascending=[True, False])
 
     # =============================
-    # DASHBOARD (AKTIF SAJA)
+    # DASHBOARD
     # =============================
     st.subheader("📊 Dashboard")
 
@@ -255,7 +268,3 @@ if not db.empty and not df_input.empty:
 
 else:
     st.warning("⚠️ Upload DB ASCII dulu atau input data")
-    
-# ambil kolom yang valid aja
-valid_columns = load_db().columns.tolist()
-df_upload = df_upload[[col for col in df_upload.columns if col in valid_columns]]
