@@ -155,28 +155,16 @@ if uploaded_file:
         st.dataframe(df_upload.head())
 
         if st.button("🚀 Upload ke DB"):
-            # 1. Bersihkan nama kolom
             df_upload = clean_columns(df_upload)
-
-            # 2. Rename kolom Excel → Supabase
             df_upload = df_upload.rename(columns=RENAME_MAP)
-
-            # 3. Hapus baris yang No_Reg kosong
             df_upload = df_upload[df_upload["No_Reg"].notna()]
             df_upload = df_upload[df_upload["No_Reg"].astype(str).str.strip() != ""]
-
-            # 4. Bersihkan whitespace di No_Reg
             df_upload["No_Reg"] = df_upload["No_Reg"].astype(str).str.strip()
-
-            # 5. Filter hanya kolom valid
             valid_cols = [c for c in df_upload.columns if c in VALID_DB_COLUMNS]
             df_upload = df_upload[valid_cols]
             st.info(f"📌 Kolom yang diupload: {valid_cols}")
-
-            # 6. Bersihkan nilai
             data = clean_for_json(df_upload)
 
-            # 7. Upload batch
             for i in range(0, len(data), 500):
                 supabase.table("db_ascii").upsert(
                     data[i:i+500],
@@ -219,7 +207,7 @@ df_input = load_input()
 if not db.empty and not df_input.empty:
 
     # =============================
-    # FORMAT DATA + STRIP WHITESPACE
+    # FORMAT DATA
     # =============================
     db["No_Reg"] = db["No_Reg"].astype(str).str.strip()
     df_input["No_Reg"] = df_input["No_Reg"].astype(str).str.strip()
@@ -233,6 +221,13 @@ if not db.empty and not df_input.empty:
     # MERGE
     # =============================
     df = df_input.merge(db, on="No_Reg", how="left")
+
+    # =============================
+    # DEBUG - hapus setelah masalah ketemu
+    # =============================
+    st.write("Sample input No_Reg:", df_input["No_Reg"].head().tolist())
+    st.write("Sample db No_Reg:", db["No_Reg"].head().tolist())
+    st.write("Hasil merge:", df.head())
 
     # =============================
     # HITUNG OD
@@ -258,12 +253,6 @@ if not db.empty and not df_input.empty:
     ]
     cols_exist = [c for c in desired_cols if c in df.columns]
     df_display = df[cols_exist]
-    df = df_input.merge(db, on="No_Reg", how="left")
-
-# DEBUG - hapus setelah masalah ketemu
-st.write("Sample input No_Reg:", df_input["No_Reg"].head().tolist())
-st.write("Sample db No_Reg:", db["No_Reg"].head().tolist())
-st.write("Hasil merge:", df.head())
 
     # =============================
     # DASHBOARD
