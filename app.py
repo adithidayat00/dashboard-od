@@ -8,10 +8,10 @@ st.set_page_config(page_title="Monitoring OD", layout="wide")
 st.title("📊 Sistem Monitoring OD")
 
 # =========================
-# SUPABASE CONFIG
+# SUPABASE
 # =========================
 SUPABASE_URL = "https://jrikxltaaxlipbgturju.supabase.co"
-SUPABASE_KEY = "ISI_ANON_KEY_LO"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpyaWt4bHRhYXhsaXBiZ3R1cmp1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUyODMxNzEsImV4cCI6MjA5MDg1OTE3MX0.gloC3nfdIx7q9rV8kEXcKsAaZpJB9nOeyvRRS4yY-6U"
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -43,33 +43,38 @@ def load_db():
     except:
         return pd.DataFrame()
 
-# 🔥 FIX JSON ERROR DI SINI
+# 🔥 FIX TOTAL UPLOAD (ANTI ERROR)
 def upload_db(df):
     df = df.drop_duplicates(subset=["no_kontrak"])
 
-    # hilangkan NaN
-    df = df.fillna("")
+    # bersihin data
+    df = df.replace({pd.NA: None})
+    df = df.replace({float("nan"): None})
 
-    # convert tanggal ke string
+    # fix tanggal
     if "tanggal_valid" in df.columns:
         df["tanggal_valid"] = pd.to_datetime(
             df["tanggal_valid"], errors="coerce"
-        ).astype(str)
+        ).dt.strftime("%Y-%m-%d")
 
-    # convert semua ke string (biar aman JSON)
-    df = df.astype(str)
+    # convert semua ke string / None
+    for col in df.columns:
+        df[col] = df[col].apply(lambda x: str(x) if x not in [None, "None"] else None)
 
     data = df.to_dict(orient="records")
 
-    supabase.table("db_ascii").insert(data).execute()
+    # 🔥 batch biar aman
+    batch_size = 500
+    for i in range(0, len(data), batch_size):
+        supabase.table("db_ascii").insert(data[i:i+batch_size]).execute()
 
 # =========================
-# LOAD DATABASE
+# LOAD DB
 # =========================
 db = load_db()
 
 # =========================
-# UPLOAD ASCII (HANYA KALO KOSONG)
+# UPLOAD (CUMA SEKALI)
 # =========================
 if db.empty:
     st.subheader("📥 Upload Database (sekali saja)")
@@ -79,7 +84,7 @@ if db.empty:
     if file:
         db = pd.read_excel(file)
 
-        # bersihin kolom
+        # 🔥 bersihin kolom
         db.columns = (
             db.columns.str.strip()
             .str.lower()
@@ -87,7 +92,6 @@ if db.empty:
             .str.replace("'", "")
         )
 
-        # mapping kolom
         mapping = {
             "noreg": "no_kontrak",
             "namacust": "nama_cust",
@@ -104,7 +108,7 @@ if db.empty:
         st.rerun()
 
 # =========================
-# LOAD LAGI
+# LOAD DB ULANG
 # =========================
 db = load_db()
 
@@ -151,14 +155,11 @@ if not df.empty:
     )
 
     # =========================
-    # HITUNG SELISIH
+    # HITUNG
     # =========================
     df["tanggal_valid"] = pd.to_datetime(df["tanggal_valid"], errors="coerce")
     df["selisih_hari"] = (df["tanggal_valid"] - df["tgl_invoice"]).dt.days
 
-    # =========================
-    # KATEGORI OD
-    # =========================
     def kategori(x):
         if pd.isna(x):
             return "Tidak Valid"
@@ -174,32 +175,41 @@ if not df.empty:
     df["kategori_od"] = df["selisih_hari"].apply(kategori)
 
     # =========================
-    # PRIORITAS
+    # PRIORITAS + CA
     # =========================
-    order = {
-        "OD3": 1,
-        "OD2": 2,
-        "OD1": 3,
-        "Tidak Masuk OD": 4,
-        "Tidak Valid": 5
-    }
-
+    order = {"OD3": 1, "OD2": 2, "OD1": 3, "Tidak Masuk OD": 4, "Tidak Valid": 5}
     df["priority"] = df["kategori_od"].map(order)
 
-    # kalau lunas → paling bawah
-    df.loc[df["status_bayar"] == "CA", "priority"] = 99
+    # 🔥 CA paling bawah
+    df.loc[df["status_bayar"].str.upper() == "CA", "priority"] = 99
 
     df = df.sort_values("priority")
 
     # =========================
-    # TAMPIL DATA
+    # 🔴 HIGHLIGHT
+    # =========================
+    def highlight(row):
+        if str(row["status_bayar"]).upper() == "CA":
+            return ["background-color: #ff4d4d"] * len(row)
+        elif row["kategori_od"] == "OD3":
+            return ["background-color: #ff9999"] * len(row)
+        elif row["kategori_od"] == "OD2":
+            return ["background-color: #ffe066"] * len(row)
+        elif row["kategori_od"] == "OD1":
+            return ["background-color: #b3ffb3"] * len(row)
+        else:
+            return [""] * len(row)
+
+    styled_df = df.style.apply(highlight, axis=1)
+
+    # =========================
+    # TAMPIL
     # =========================
     st.subheader("📋 Data Monitoring")
-
-    st.dataframe(df, use_container_width=True)
+    st.write(styled_df)
 
     # =========================
-    # DOWNLOAD EXCEL
+    # DOWNLOAD
     # =========================
     def to_excel(data):
         output = BytesIO()
