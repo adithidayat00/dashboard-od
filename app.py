@@ -258,6 +258,12 @@ if not db.empty and not df_input.empty:
     ]
     cols_exist = [c for c in desired_cols if c in df.columns]
     df_display = df[cols_exist]
+    df = df_input.merge(db, on="No_Reg", how="left")
+
+# DEBUG - hapus setelah masalah ketemu
+st.write("Sample input No_Reg:", df_input["No_Reg"].head().tolist())
+st.write("Sample db No_Reg:", db["No_Reg"].head().tolist())
+st.write("Hasil merge:", df.head())
 
     # =============================
     # DASHBOARD
