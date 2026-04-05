@@ -9,8 +9,8 @@ import math
 # =============================
 # 🔑 CONFIG
 # =============================
-SUPABASE_URL = "https://jrikxltaaxlipbgturju.supabase.co"   # ← ganti ini
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpyaWt4bHRhYXhsaXBiZ3R1cmp1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUyODMxNzEsImV4cCI6MjA5MDg1OTE3MX0.gloC3nfdIx7q9rV8kEXcKsAaZpJB9nOeyvRRS4yY-6U"                  # ← ganti ini
+SUPABASE_URL = "https://jrikxltaaxlipbgturju.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpyaWt4bHRhYXhsaXBiZ3R1cmp1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUyODMxNzEsImV4cCI6MjA5MDg1OTE3MX0.gloC3nfdIx7q9rV8kEXcKsAaZpJB9nOeyvRRS4yY-6U"
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -18,27 +18,15 @@ st.set_page_config(layout="wide")
 st.title("📊 Sistem Monitoring OD")
 
 # =============================
-# KOLOM VALID db_ascii
+# NORMALIZE No_Reg (🔥 WAJIB)
 # =============================
-VALID_DB_COLUMNS = [
-    "No_Reg", "Nama_Cust", "Type", "Dealer",
-    "Sales_ACC", "Brand", "State", "State1", "AF"
-]
-
-# =============================
-# RENAME MAP Excel → Supabase
-# =============================
-RENAME_MAP = {
-    "NoReg"      : "No_Reg",
-    "NamaCust"   : "Nama_Cust",
-    "NamaDealer" : "Dealer",
-    "SalesACC"   : "Sales_ACC",
-    "Merk"       : "Brand",
-    "type"       : "Type",
-    "Sta"        : "State",
-    "StatY"      : "State1",
-    "AF"         : "AF",
-}
+def normalize_noreg(series):
+    return (
+        series.astype(str)
+        .str.replace(r"\.0$", "", regex=True)
+        .str.replace(r"\s+", "", regex=True)
+        .str.strip()
+    )
 
 # =============================
 # LOAD DATA
@@ -76,38 +64,24 @@ def clean_columns(df):
     return df
 
 # =============================
-# CLEAN VALUE
+# RENAME MAP (FLEXIBLE)
 # =============================
-def clean_value(val):
-    try:
-        if pd.isna(val):
-            return None
-    except (TypeError, ValueError):
-        pass
-
-    if isinstance(val, np.integer):
-        return int(val)
-
-    if isinstance(val, np.floating):
-        if math.isnan(val) or math.isinf(val):
-            return None
-        return float(val)
-
-    if isinstance(val, np.bool_):
-        return bool(val)
-
-    if isinstance(val, np.ndarray):
-        return val.tolist()
-
-    if isinstance(val, float):
-        if math.isnan(val) or math.isinf(val):
-            return None
-        return val
-
-    return val
+RENAME_MAP = {
+    "NoReg": "No_Reg",
+    "NOREG": "No_Reg",
+    "NamaCust": "Nama_Cust",
+    "Nama_Customer": "Nama_Cust",
+    "DealerName": "Dealer",
+    "SalesACC": "Sales_ACC",
+    "BrandName": "Brand",
+    "Merk": "Brand",
+    "TypeUnit": "Type",
+    "STA": "State",
+    "STATY": "State1"
+}
 
 # =============================
-# CLEAN FOR JSON
+# CLEAN JSON
 # =============================
 def clean_for_json(df):
     df = df.copy()
@@ -116,31 +90,14 @@ def clean_for_json(df):
         if pd.api.types.is_datetime64_any_dtype(df[col]):
             df[col] = df[col].dt.strftime("%Y-%m-%d")
 
-    records = df.to_dict(orient="records")
-    cleaned = []
-    for row in records:
-        cleaned.append({k: clean_value(v) for k, v in row.items()})
-    return cleaned
-
-# =============================
-# KATEGORI OD
-# =============================
-def get_kategori_od(h):
-    if h < 15:
-        return "Belum OD"
-    elif h <= 45:
-        return "OD 1"
-    elif h <= 75:
-        return "OD 2"
-    elif h >= 76:
-        return "OD 3"
+    return df.replace({np.nan: None}).to_dict(orient="records")
 
 # =============================
 # 📂 UPLOAD EXCEL
 # =============================
 st.subheader("📂 Upload DB ASCII")
 
-uploaded_file = st.file_uploader("Upload Excel (.xls/.xlsx)", type=["xls", "xlsx"])
+uploaded_file = st.file_uploader("Upload Excel", type=["xls", "xlsx"])
 
 if uploaded_file:
     try:
@@ -151,18 +108,19 @@ if uploaded_file:
         else:
             df_upload = pd.read_excel(uploaded_file, engine="openpyxl")
 
-        st.write("Preview Data:")
+        st.write("Preview:")
         st.dataframe(df_upload.head())
 
         if st.button("🚀 Upload ke DB"):
             df_upload = clean_columns(df_upload)
             df_upload = df_upload.rename(columns=RENAME_MAP)
+
+            # 🔥 WAJIB normalize
+            df_upload["No_Reg"] = normalize_noreg(df_upload["No_Reg"])
+
             df_upload = df_upload[df_upload["No_Reg"].notna()]
-            df_upload = df_upload[df_upload["No_Reg"].astype(str).str.strip() != ""]
-            df_upload["No_Reg"] = df_upload["No_Reg"].astype(str).str.strip()
-            valid_cols = [c for c in df_upload.columns if c in VALID_DB_COLUMNS]
-            df_upload = df_upload[valid_cols]
-            st.info(f"📌 Kolom yang diupload: {valid_cols}")
+            df_upload = df_upload[df_upload["No_Reg"] != ""]
+
             data = clean_for_json(df_upload)
 
             for i in range(0, len(data), 500):
@@ -193,7 +151,7 @@ with col2:
 with col3:
     if st.button("Tambah"):
         if not noreg:
-            st.warning("No_Reg tidak boleh kosong!")
+            st.warning("No_Reg kosong!")
         else:
             insert_input(noreg, tgl_invoice)
             st.rerun()
@@ -206,28 +164,20 @@ df_input = load_input()
 
 if not db.empty and not df_input.empty:
 
-    # =============================
-    # FORMAT DATA
-    # =============================
-    db["No_Reg"] = db["No_Reg"].astype(str).str.strip()
-    df_input["No_Reg"] = df_input["No_Reg"].astype(str).str.strip()
+    # 🔥 NORMALIZE (INI KUNCI MASALAH LU)
+    db["No_Reg"] = normalize_noreg(db["No_Reg"])
+    df_input["No_Reg"] = normalize_noreg(df_input["No_Reg"])
 
-    # =============================
     # STATUS
-    # =============================
-    db["status"] = db["State"].fillna("").str.strip() + db["State1"].fillna("").str.strip()
+    db["status"] = db["State"].fillna("") + db["State1"].fillna("")
 
-    # =============================
     # MERGE
-    # =============================
     df = df_input.merge(db, on="No_Reg", how="left")
 
     # =============================
-    # DEBUG - hapus setelah masalah ketemu
+    # DEBUG (hapus nanti)
     # =============================
-    st.write("Sample input No_Reg:", df_input["No_Reg"].head().tolist())
-    st.write("Sample db No_Reg:", db["No_Reg"].head().tolist())
-    st.write("Hasil merge:", df.head())
+    st.write("MATCH CHECK:", df_input["No_Reg"].isin(db["No_Reg"]))
 
     # =============================
     # HITUNG OD
@@ -236,49 +186,46 @@ if not db.empty and not df_input.empty:
     today = pd.to_datetime(datetime.now().date())
 
     df["hari"] = (today - df["Tanggal_Invoice"]).dt.days
-    df["kategori_od"] = df["hari"].apply(get_kategori_od)
 
-    # =============================
+    def kategori(h):
+        if h < 15:
+            return "Belum OD"
+        elif h <= 45:
+            return "OD 1"
+        elif h <= 75:
+            return "OD 2"
+        else:
+            return "OD 3"
+
+    df["kategori_od"] = df["hari"].apply(kategori)
+
     # STATUS LUNAS
-    # =============================
     df["is_lunas"] = df["status"].str.contains("OVOP", na=False)
+
     df = df.sort_values(by=["is_lunas", "hari"], ascending=[True, False])
 
-    # =============================
     # DISPLAY
-    # =============================
-    desired_cols = [
+    df_display = df[[
         "No_Reg", "kategori_od", "Nama_Cust", "Type",
         "Dealer", "Sales_ACC", "Brand", "status", "AF", "hari"
-    ]
-    cols_exist = [c for c in desired_cols if c in df.columns]
-    df_display = df[cols_exist]
+    ]]
 
-    # =============================
     # DASHBOARD
-    # =============================
     st.subheader("📊 Dashboard")
 
     col1, col2, col3 = st.columns(3)
 
-    for i, kategori_name in enumerate(["OD 1", "OD 2", "OD 3"]):
-        data_od = df[df["kategori_od"] == kategori_name]
-        total = len(data_od)
-
-        if "AF" in df.columns:
-            af_sum = pd.to_numeric(data_od["AF"], errors="coerce").sum()
-            af_label = f"AF: {int(af_sum):,}"
-        else:
-            af_label = "AF: N/A"
+    for i, k in enumerate(["OD 1", "OD 2", "OD 3"]):
+        d = df[df["kategori_od"] == k]
+        total = len(d)
+        af_sum = pd.to_numeric(d["AF"], errors="coerce").sum()
 
         with [col1, col2, col3][i]:
-            st.metric(kategori_name, f"{total} account", af_label)
+            st.metric(k, f"{total} account", f"AF: {int(af_sum):,}")
 
-    # =============================
     # TABLE
-    # =============================
     def highlight(row):
-        if "OVOP" in str(row.get("status", "")):
+        if "OVOP" in str(row["status"]):
             return ["background-color: green"] * len(row)
         return [""] * len(row)
 
