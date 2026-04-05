@@ -255,3 +255,7 @@ if not db.empty and not df_input.empty:
 
 else:
     st.warning("⚠️ Upload DB ASCII dulu atau input data")
+    
+# ambil kolom yang valid aja
+valid_columns = load_db().columns.tolist()
+df_upload = df_upload[[col for col in df_upload.columns if col in valid_columns]]
