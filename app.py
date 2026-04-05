@@ -82,8 +82,12 @@ st.dataframe(
     df.style.apply(highlight_paid, axis=1),
     use_container_width=True
 )
-    st.caption("🟢 Hijau = Sudah Paid (OVOP)")
 
+if not df.empty:
+
+    st.dataframe(df)
+
+    st.caption("🟢 Hijau = Sudah Paid (OVOP)"
 else:
     st.info("Belum ada data")
 
