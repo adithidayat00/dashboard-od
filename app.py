@@ -8,7 +8,7 @@ st.set_page_config(page_title="Monitoring OD", layout="wide")
 st.title("📊 Sistem Monitoring OD")
 
 # =========================
-# SUPABASE
+# SUPABASE CONFIG
 # =========================
 SUPABASE_URL = "https://jrikxltaaxlipbgturju.supabase.co"
 SUPABASE_KEY = "ISI_ANON_KEY_LO"
@@ -24,70 +24,86 @@ def insert_data(no_kontrak, tgl_invoice):
         "tgl_invoice": str(tgl_invoice)
     }).execute()
 
-def load_data():
-    res = supabase.table("input_data").select("*").execute()
-    df = pd.DataFrame(res.data)
-
-    if not df.empty:
-        df["tgl_invoice"] = pd.to_datetime(df["tgl_invoice"], errors="coerce")
-
-    return df
-
-# 🔥 TANPA DELETE (FIX ERROR)
-def upload_db(df):
-    df = df.drop_duplicates(subset=["no_kontrak"])
-    supabase.table("db_ascii").insert(df.to_dict(orient="records")).execute()
+def load_input():
+    try:
+        res = supabase.table("input_data").select("*").execute()
+        df = pd.DataFrame(res.data)
+        if not df.empty:
+            df["tgl_invoice"] = pd.to_datetime(df["tgl_invoice"], errors="coerce")
+        return df
+    except:
+        return pd.DataFrame()
 
 def load_db():
-    res = supabase.table("db_ascii").select("*").execute()
-    return pd.DataFrame(res.data)
+    try:
+        res = supabase.table("db_ascii").select("*").execute()
+        return pd.DataFrame(res.data)
+    except:
+        return pd.DataFrame()
 
-# =========================
-# UPLOAD ASCII (SEKALI)
-# =========================
-st.subheader("📥 Upload Database (sekali saja)")
+def upload_db(df):
+    df = df.drop_duplicates(subset=["no_kontrak"])
 
-db_file = st.file_uploader("Upload Database ASCII", type=["xlsx", "xls"])
-
-if db_file:
-    db = pd.read_excel(db_file)
-
-    db.columns = (
-        db.columns.str.strip()
-        .str.lower()
-        .str.replace(" ", "")
-        .str.replace("'", "")
-    )
-
-    mapping = {
-        "noreg": "no_kontrak",
-        "namacust": "nama_cust",
-        "tglvld": "tanggal_valid",
-        "tglvalid": "tanggal_valid",
-        "state": "status_bayar"
-    }
-
-    db.rename(columns={k: v for k, v in mapping.items() if k in db.columns}, inplace=True)
-
-    db["tanggal_valid"] = pd.to_datetime(db["tanggal_valid"], errors="coerce")
-
-    upload_db(db)
-
-    st.success("Database berhasil disimpan ✅")
+    supabase.table("db_ascii").insert(
+        df.to_dict(orient="records")
+    ).execute()
 
 # =========================
 # LOAD DATABASE
 # =========================
 db = load_db()
 
+# =========================
+# UPLOAD ASCII (CUMA KALO KOSONG)
+# =========================
 if db.empty:
-    st.warning("⚠️ Upload database dulu")
+    st.subheader("📥 Upload Database (sekali saja)")
+
+    file = st.file_uploader("Upload Database ASCII", type=["xlsx", "xls"])
+
+    if file:
+        db = pd.read_excel(file)
+
+        # 🔥 bersihin kolom
+        db.columns = (
+            db.columns.str.strip()
+            .str.lower()
+            .str.replace(" ", "")
+            .str.replace("'", "")
+        )
+
+        # mapping nama kolom
+        mapping = {
+            "noreg": "no_kontrak",
+            "namacust": "nama_cust",
+            "tglvld": "tanggal_valid",
+            "tglvalid": "tanggal_valid",
+            "state": "status_bayar"
+        }
+
+        db.rename(columns={k: v for k, v in mapping.items() if k in db.columns}, inplace=True)
+
+        # convert tanggal
+        db["tanggal_valid"] = pd.to_datetime(db["tanggal_valid"], errors="coerce")
+
+        upload_db(db)
+
+        st.success("Database berhasil disimpan ✅")
+        st.rerun()
+
+# =========================
+# LOAD LAGI SETELAH UPLOAD
+# =========================
+db = load_db()
+
+if db.empty:
+    st.warning("⚠️ Database belum tersedia")
     st.stop()
 
 # =========================
 # INPUT USER
 # =========================
-st.subheader("📥 Input Data")
+st.subheader("📥 Input Data Harian")
 
 col1, col2 = st.columns(2)
 
@@ -97,31 +113,39 @@ with col1:
 with col2:
     tgl_invoice = st.date_input("Tanggal Invoice")
 
-if st.button("➕ Tambah"):
+if st.button("➕ Tambah Data"):
     if no_reg:
         insert_data(no_reg, tgl_invoice)
-        st.success("Data masuk ✅")
+        st.success("Data berhasil ditambahkan ✅")
+        st.rerun()
 
 # =========================
 # LOAD INPUT
 # =========================
-df = load_data()
+df = load_input()
 
 if not df.empty:
 
     df["no_kontrak"] = df["no_kontrak"].astype(str).str.strip()
     db["no_kontrak"] = db["no_kontrak"].astype(str).str.strip()
 
+    # =========================
     # VLOOKUP
+    # =========================
     df = df.merge(
         db[["no_kontrak", "nama_cust", "tanggal_valid", "status_bayar"]],
         on="no_kontrak",
         how="left"
     )
 
-    # HITUNG OD
+    # =========================
+    # HITUNG SELISIH
+    # =========================
     df["selisih_hari"] = (df["tanggal_valid"] - df["tgl_invoice"]).dt.days
 
+    # =========================
+    # KATEGORI OD
+    # =========================
     def kategori(x):
         if pd.isna(x):
             return "Tidak Valid"
@@ -136,21 +160,42 @@ if not df.empty:
 
     df["kategori_od"] = df["selisih_hari"].apply(kategori)
 
-    # SORT PRIORITAS
-    order = {"OD3": 1, "OD2": 2, "OD1": 3, "Tidak Masuk OD": 4, "Tidak Valid": 5}
+    # =========================
+    # PRIORITAS SORT
+    # =========================
+    order = {
+        "OD3": 1,
+        "OD2": 2,
+        "OD1": 3,
+        "Tidak Masuk OD": 4,
+        "Tidak Valid": 5
+    }
+
     df["priority"] = df["kategori_od"].map(order)
+
+    # kalau lunas → paling bawah
+    df.loc[df["status_bayar"] == "CA", "priority"] = 99
 
     df = df.sort_values("priority")
 
-    # TAMPIL
+    # =========================
+    # TAMPIL DATA
+    # =========================
     st.subheader("📋 Data Monitoring")
+
     st.dataframe(df, use_container_width=True)
 
-    # DOWNLOAD
+    # =========================
+    # DOWNLOAD EXCEL
+    # =========================
     def to_excel(data):
         output = BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
             data.to_excel(writer, index=False)
         return output.getvalue()
 
-    st.download_button("📥 Download Excel", to_excel(df), "monitoring.xlsx")
+    st.download_button(
+        "📥 Download Excel",
+        to_excel(df),
+        file_name="monitoring_od.xlsx"
+    )
