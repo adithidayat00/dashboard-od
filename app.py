@@ -8,7 +8,7 @@ st.set_page_config(page_title="Monitoring OD System", layout="wide")
 st.title("📊 Sistem Monitoring OD")
 
 # =========================
-# 🔑 SUPABASE (PAKE SECRETS)
+# 🔑 SUPABASE CONFIG
 # =========================
 SUPABASE_URL = "https://jrikxltaaxlipbgturju.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpyaWt4bHRhYXhsaXBiZ3R1cmp1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUyODMxNzEsImV4cCI6MjA5MDg1OTE3MX0.gloC3nfdIx7q9rV8kEXcKsAaZpJB9nOeyvRRS4yY-6U"
@@ -23,7 +23,9 @@ db_file = st.file_uploader("Upload Database ASCII", type=["xlsx", "xls"])
 if db_file:
     db = pd.read_excel(db_file)
 
-    # bersihin nama kolom
+    # =========================
+    # 🧹 CLEAN COLUMN
+    # =========================
     db.columns = (
         db.columns.str.strip()
         .str.lower()
@@ -42,22 +44,21 @@ if db_file:
 
     db.rename(columns={k: v for k, v in mapping.items() if k in db.columns}, inplace=True)
 
-    # convert tanggal
     db["tanggal_valid"] = pd.to_datetime(db["tanggal_valid"], errors="coerce")
 
     st.success("Database ASCII loaded ✅")
 
     # =========================
-    # 🔥 FUNCTION SUPABASE
+    # 🔥 SUPABASE FUNCTION
     # =========================
     def insert_data(no_kontrak, tgl_invoice):
-        supabase.table("input_table").insert({
+        supabase.table("input_data").insert({
             "no_kontrak": str(no_kontrak),
             "tgl_invoice": str(tgl_invoice)
         }).execute()
 
     def load_data():
-        res = supabase.table("input_table").select("*").execute()
+        res = supabase.table("input_data").select("*").execute()
         df = pd.DataFrame(res.data)
 
         if not df.empty:
@@ -91,7 +92,7 @@ if db_file:
     if not df.empty:
 
         # =========================
-        # 🔥 FIX TIPE DATA (WAJIB)
+        # 🔥 FIX TIPE DATA
         # =========================
         df["no_kontrak"] = df["no_kontrak"].astype(str).str.strip()
         db["no_kontrak"] = db["no_kontrak"].astype(str).str.strip()
@@ -140,7 +141,7 @@ if db_file:
 
         df["priority"] = df["kategori_od"].map(order_map)
 
-        # 🔴 kalau sudah bayar (STATE = OV)
+        # 🔴 STATUS BAYAR (STATE = OV)
         df["paid_flag"] = df["status_bayar"].astype(str).str.upper().str.contains("OV")
 
         df = df.sort_values(["paid_flag", "priority"])
