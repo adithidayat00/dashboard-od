@@ -10,7 +10,7 @@ import math
 # 🔑 CONFIG
 # =============================
 SUPABASE_URL = "https://jrikxltaaxlipbgturju.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpyaWt4bHRhYXhsaXBiZ3R1cmp1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUyODMxNzEsImV4cCI6MjA5MDg1OTE3MX0.gloC3nfdIx7q9rV8kEXcKsAaZpJB9nOeyvRRS4yY-6U"
+SUPABASE_KEY =  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpyaWt4bHRhYXhsaXBiZ3R1cmp1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUyODMxNzEsImV4cCI6MjA5MDg1OTE3MX0.gloC3nfdIx7q9rV8kEXcKsAaZpJB9nOeyvRRS4yY-6U"
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -27,6 +27,15 @@ def load_db():
 def load_input():
     res = supabase.table("input_data").select("*").execute()
     return pd.DataFrame(res.data)
+
+# =============================
+# GET DB COLUMNS
+# =============================
+def get_db_columns():
+    res = supabase.table("db_ascii").select("*").limit(1).execute()
+    if res.data:
+        return list(res.data[0].keys())
+    return []
 
 # =============================
 # INSERT INPUT
@@ -56,32 +65,26 @@ def clean_columns(df):
 # CLEAN VALUE
 # =============================
 def clean_value(val):
-    # pd.NA, pd.NaT, None
     try:
         if pd.isna(val):
             return None
     except (TypeError, ValueError):
         pass
 
-    # numpy integer
     if isinstance(val, np.integer):
         return int(val)
 
-    # numpy floating
     if isinstance(val, np.floating):
         if math.isnan(val) or math.isinf(val):
             return None
         return float(val)
 
-    # numpy bool
     if isinstance(val, np.bool_):
         return bool(val)
 
-    # numpy array
     if isinstance(val, np.ndarray):
         return val.tolist()
 
-    # native float (NaN / Inf)
     if isinstance(val, float):
         if math.isnan(val) or math.isinf(val):
             return None
@@ -95,12 +98,10 @@ def clean_value(val):
 def clean_for_json(df):
     df = df.copy()
 
-    # Datetime → string
     for col in df.columns:
         if pd.api.types.is_datetime64_any_dtype(df[col]):
             df[col] = df[col].dt.strftime("%Y-%m-%d")
 
-    # Clean nilai per record
     records = df.to_dict(orient="records")
     cleaned = []
     for row in records:
@@ -113,11 +114,11 @@ def clean_for_json(df):
 def get_kategori_od(h):
     if h < 15:
         return "Belum OD"
-    elif h <= 45:      # 15–45 → OD 1
+    elif h <= 45:
         return "OD 1"
-    elif h <= 75:      # 46–75 → OD 2
+    elif h <= 75:
         return "OD 2"
-    elif h >= 76:      # >= 76 → OD 3
+    elif h >= 76:
         return "OD 3"
 
 # =============================
@@ -140,9 +141,20 @@ if uploaded_file:
         st.dataframe(df_upload.head())
 
         if st.button("🚀 Upload ke DB"):
-            df_upload = clean_columns(df_upload)   # ✅ bersihkan nama kolom
-            data = clean_for_json(df_upload)        # ✅ bersihkan nilai
+            # 1. Bersihkan nama kolom
+            df_upload = clean_columns(df_upload)
 
+            # 2. Filter hanya kolom yang ada di Supabase
+            db_cols = get_db_columns()
+            if db_cols:
+                valid_cols = [c for c in df_upload.columns if c in db_cols]
+                df_upload = df_upload[valid_cols]
+                st.info(f"📌 Kolom yang diupload: {valid_cols}")
+
+            # 3. Bersihkan nilai
+            data = clean_for_json(df_upload)
+
+            # 4. Upload batch
             for i in range(0, len(data), 500):
                 supabase.table("db_ascii").upsert(
                     data[i:i+500],
