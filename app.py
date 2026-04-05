@@ -74,11 +74,14 @@ if not df.empty:
             return ["background-color: #2e7d32; color: white"] * len(row)
         return [""] * len(row)
 
-    st.dataframe(
-        df.style.apply(highlight_paid, axis=1),
-        use_container_width=True
-    )
+   # HAPUS KOLOM ID DARI TAMPILAN
+if "id" in df.columns:
+    df = df.drop(columns=["id"])
 
+st.dataframe(
+    df.style.apply(highlight_paid, axis=1),
+    use_container_width=True
+)
     st.caption("🟢 Hijau = Sudah Paid (OVOP)")
 
 else:
