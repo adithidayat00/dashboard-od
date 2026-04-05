@@ -9,13 +9,21 @@ import math
 # =============================
 # 🔑 CONFIG
 # =============================
-SUPABASE_URL = "https://jrikxltaaxlipbgturju.supabase.co"
-SUPABASE_KEY =  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpyaWt4bHRhYXhsaXBiZ3R1cmp1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUyODMxNzEsImV4cCI6MjA5MDg1OTE3MX0.gloC3nfdIx7q9rV8kEXcKsAaZpJB9nOeyvRRS4yY-6U"
+SUPABASE_URL = "https://jrikxltaaxlipbgturju.supabase.co"   # ← ganti ini
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpyaWt4bHRhYXhsaXBiZ3R1cmp1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUyODMxNzEsImV4cCI6MjA5MDg1OTE3MX0.gloC3nfdIx7q9rV8kEXcKsAaZpJB9nOeyvRRS4yY-6U"                  # ← ganti ini
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 st.set_page_config(layout="wide")
 st.title("📊 Sistem Monitoring OD")
+
+# =============================
+# KOLOM VALID db_ascii
+# =============================
+VALID_DB_COLUMNS = [
+    "No_Reg", "Nama_Cust", "Type", "Dealer",
+    "Sales_ACC", "Brand", "State", "State1", "AF"
+]
 
 # =============================
 # LOAD DATA
@@ -27,15 +35,6 @@ def load_db():
 def load_input():
     res = supabase.table("input_data").select("*").execute()
     return pd.DataFrame(res.data)
-
-# =============================
-# GET DB COLUMNS
-# =============================
-def get_db_columns():
-    res = supabase.table("db_ascii").select("*").limit(1).execute()
-    if res.data:
-        return list(res.data[0].keys())
-    return []
 
 # =============================
 # INSERT INPUT
@@ -144,12 +143,10 @@ if uploaded_file:
             # 1. Bersihkan nama kolom
             df_upload = clean_columns(df_upload)
 
-            # 2. Filter hanya kolom yang ada di Supabase
-            db_cols = get_db_columns()
-            if db_cols:
-                valid_cols = [c for c in df_upload.columns if c in db_cols]
-                df_upload = df_upload[valid_cols]
-                st.info(f"📌 Kolom yang diupload: {valid_cols}")
+            # 2. Filter hanya kolom valid
+            valid_cols = [c for c in df_upload.columns if c in VALID_DB_COLUMNS]
+            df_upload = df_upload[valid_cols]
+            st.info(f"📌 Kolom yang diupload: {valid_cols}")
 
             # 3. Bersihkan nilai
             data = clean_for_json(df_upload)
