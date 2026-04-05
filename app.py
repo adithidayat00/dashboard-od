@@ -10,7 +10,7 @@ import re
 # 🔑 CONFIG
 # =============================
 SUPABASE_URL = "https://jrikxltaaxlipbgturju.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpyaWt4bHRhYXhsaXBiZ3R1cmp1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUyODMxNzEsImV4cCI6MjA5MDg1OTE3MX0.gloC3nfdIx7q9rV8kEXcKsAaZpJB9nOeyvRRS4yY-6U"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpyaWt4bHRhYXhsaXBiZ3R1cmp1Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTI4MzE3MSwiZXhwIjoyMDkwODU5MTcxfQ.08ArMKSDHRnQRy8lM3j7jKKG9IFrDBf6g0xeYxfyVgg"  # 🔥 WAJIB pakai ini kalau RLS aktif
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -29,32 +29,38 @@ def normalize_noreg(series):
     )
 
 # =============================
-# AUTO COLUMN MAPPING 🔥
+# AUTO MAP KOLOM EXCEL
 # =============================
 def auto_map_columns(df):
     mapping_patterns = {
         "No_Reg": ["noreg", "no_reg", "no reg"],
-        "Nama_Cust": ["nama", "customer", "nama_cust"],
-        "Dealer": ["dealer", "dealername"],
-        "Sales_ACC": ["sales", "salesacc", "sales_acc"],
+        "Nama_Cust": ["nama"],
+        "Dealer": ["dealer"],
+        "Sales_ACC": ["sales"],
         "Brand": ["brand", "merk"],
-        "Type": ["type", "typeunit"],
+        "Type": ["type"],
         "State": ["state", "sta"],
         "State1": ["state1", "staty"],
         "AF": ["af"]
     }
 
-    new_columns = {}
-
+    new_cols = {}
     for col in df.columns:
-        col_clean = col.lower().replace(" ", "").replace("_", "")
+        c = col.lower().replace(" ", "").replace("_", "")
+        for target, keys in mapping_patterns.items():
+            if any(k in c for k in keys):
+                new_cols[col] = target
 
-        for target, keywords in mapping_patterns.items():
-            if any(k in col_clean for k in keywords):
-                new_columns[col] = target
+    return df.rename(columns=new_cols)
 
-    df = df.rename(columns=new_columns)
-    return df
+# =============================
+# 🔥 KOLOM VALID (ANTI ERROR)
+# =============================
+VALID_COLUMNS = [
+    "No_Reg", "Nama_Cust", "Dealer",
+    "Sales_ACC", "Brand", "Type",
+    "State", "State1", "AF"
+]
 
 # =============================
 # LOAD DATA
@@ -85,11 +91,9 @@ def insert_input(noreg, tgl_invoice):
 # =============================
 def clean_for_json(df):
     df = df.copy()
-
     for col in df.columns:
         if pd.api.types.is_datetime64_any_dtype(df[col]):
             df[col] = df[col].dt.strftime("%Y-%m-%d")
-
     return df.replace({np.nan: None}).to_dict(orient="records")
 
 # =============================
@@ -121,15 +125,15 @@ if uploaded_file:
                 st.error("❌ Kolom No_Reg tidak ditemukan!")
                 st.stop()
 
+            # 🔥 NORMALIZE
             df_upload["No_Reg"] = normalize_noreg(df_upload["No_Reg"])
             df_upload = df_upload[df_upload["No_Reg"].notna()]
             df_upload = df_upload[df_upload["No_Reg"] != ""]
 
-            # 🔥 FILTER KOLOM SESUAI DB
-            db_sample = load_db()
-            if not db_sample.empty:
-                db_columns = db_sample.columns.tolist()
-                df_upload = df_upload[[col for col in df_upload.columns if col in db_columns]]
+            # 🔥 FILTER KOLOM VALID (ANTI ADMIN ERROR)
+            df_upload = df_upload[[col for col in df_upload.columns if col in VALID_COLUMNS]]
+
+            st.write("Kolom final:", df_upload.columns.tolist())
 
             data = clean_for_json(df_upload)
 
@@ -177,15 +181,12 @@ if not db.empty and not df_input.empty:
     db["No_Reg"] = normalize_noreg(db["No_Reg"])
     df_input["No_Reg"] = normalize_noreg(df_input["No_Reg"])
 
-    # =============================
-    # STATUS GABUNGAN
-    # =============================
+    # STATUS
     db["status"] = db["State"].fillna("") + " " + db["State1"].fillna("")
 
     # MERGE
     df = df_input.merge(db, on="No_Reg", how="left")
 
-    # DEBUG
     st.write("MATCH CHECK:", df_input["No_Reg"].isin(db["No_Reg"]))
 
     # =============================
