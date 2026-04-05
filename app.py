@@ -1,152 +1,174 @@
 import streamlit as st
 import pandas as pd
 from io import BytesIO
+from supabase import create_client
 
-st.set_page_config(page_title="Dashboard OD", layout="wide")
+st.set_page_config(page_title="Monitoring OD System", layout="wide")
 
-st.title("📊 Dashboard Monitoring OD")
+st.title("📊 Sistem Monitoring OD")
 
 # =========================
-# INPUT
+# 🔑 SUPABASE CONFIG
 # =========================
-tgl_tagihan = st.date_input("Tanggal Terima Tagihan")
-uploaded_file = st.file_uploader("Upload Data Excel", type=["xlsx", "xls"])
+SUPABASE_URL = "https://jrikxltaaxlipbgturju.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpyaWt4bHRhYXhsaXBiZ3R1cmp1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUyODMxNzEsImV4cCI6MjA5MDg1OTE3MX0.gloC3nfdIx7q9rV8kEXcKsAaZpJB9nOeyvRRS4yY-6U"
 
-if uploaded_file:
-    df = pd.read_excel(uploaded_file)
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-    # =========================
-    # BERSIHKAN NAMA KOLOM (ANTI ERROR TOTAL)
-    # =========================
-    df.columns = (
-        df.columns
-        .str.strip()
+# =========================
+# 📥 DATABASE ASCII (UPLOAD)
+# =========================
+db_file = st.file_uploader("Upload Database ASCII", type=["xlsx", "xls"])
+
+if db_file:
+    db = pd.read_excel(db_file)
+
+    # bersihin kolom
+    db.columns = (
+        db.columns.str.strip()
         .str.lower()
         .str.replace(" ", "")
         .str.replace("'", "")
-        .str.replace("-", "")
     )
 
-    # DEBUG (optional, bisa dihapus nanti)
-    st.write("Kolom terdeteksi:", df.columns)
-
-    # =========================
-    # RENAME OTOMATIS (FLEXIBLE)
-    # =========================
+    # mapping fleksibel
     mapping = {
         "noreg": "no_kontrak",
-        "tglin": "tgl_tagihan",
         "namacust": "nama_cust",
-        "state": "stat_ov",
         "tglvld": "tanggal_valid",
-        "tglvalid": "tanggal_valid"
+        "tglvalid": "tanggal_valid",
+        "state": "status_bayar"
     }
 
-    df.rename(columns={k: v for k, v in mapping.items() if k in df.columns}, inplace=True)
+    db.rename(columns={k: v for k, v in mapping.items() if k in db.columns}, inplace=True)
+
+    db["tanggal_valid"] = pd.to_datetime(db["tanggal_valid"], errors='coerce')
+
+    st.success("Database ASCII loaded ✅")
 
     # =========================
-    # VALIDASI KOLOM WAJIB
+    # 🔥 FUNCTION SUPABASE
     # =========================
-    required_cols = ["no_kontrak", "tanggal_valid"]
+    def insert_data(no_kontrak, tgl_invoice):
+        supabase.table("input_data").insert({
+            "no_kontrak": no_kontrak,
+            "tgl_invoice": str(tgl_invoice)
+        }).execute()
 
-    missing = [col for col in required_cols if col not in df.columns]
-    if missing:
-        st.error(f"Kolom wajib tidak ditemukan: {missing}")
-        st.stop()
+    def load_data():
+        res = supabase.table("input_data").select("*").execute()
+        df = pd.DataFrame(res.data)
 
-    # =========================
-    # FORMAT TANGGAL
-    # =========================
-    df["tanggal_valid"] = pd.to_datetime(df["tanggal_valid"], errors='coerce')
+        if not df.empty:
+            df["tgl_invoice"] = pd.to_datetime(df["tgl_invoice"])
 
-    # =========================
-    # HITUNG SELISIH
-    # =========================
-    df["selisih_hari"] = (
-        df["tanggal_valid"] - pd.to_datetime(tgl_tagihan)
-    ).dt.days
+        return df
 
     # =========================
-    # KLASIFIKASI OD
+    # 📥 INPUT USER
     # =========================
-    def klasifikasi_od(x):
-        if pd.isna(x):
-            return "Tidak Valid"
-        elif 15 <= x <= 45:
-            return "OD1"
-        elif 46 <= x <= 75:
-            return "OD2"
-        elif x > 75:
-            return "OD3"
-        else:
-            return "Tidak Masuk OD"
+    st.subheader("📥 Input Invoice")
 
-    df["kategori_od"] = df["selisih_hari"].apply(klasifikasi_od)
+    col1, col2 = st.columns(2)
 
-    # =========================
-    # SUMMARY
-    # =========================
-    st.subheader("📊 Summary OD")
+    with col1:
+        no_reg = st.text_input("NoReg")
 
-    col1, col2, col3 = st.columns(3)
-    col1.metric("OD1", (df["kategori_od"] == "OD1").sum())
-    col2.metric("OD2", (df["kategori_od"] == "OD2").sum())
-    col3.metric("OD3", (df["kategori_od"] == "OD3").sum())
+    with col2:
+        tgl_invoice = st.date_input("Tanggal Invoice")
+
+    if st.button("➕ Tambah"):
+        if no_reg:
+            insert_data(no_reg, tgl_invoice)
+            st.success("Data masuk database ✅")
 
     # =========================
-    # HIGHLIGHT WARNA
+    # 🔄 LOAD DATA
     # =========================
-    def highlight_od(row):
-        if row["kategori_od"] == "OD1":
-            return ["background-color: #90EE90"] * len(row)
-        elif row["kategori_od"] == "OD2":
-            return ["background-color: #FFD700"] * len(row)
-        elif row["kategori_od"] == "OD3":
-            return ["background-color: #FF7F7F"] * len(row)
-        else:
-            return [""] * len(row)
+    df = load_data()
 
-    styled_df = df.style.apply(highlight_od, axis=1)
+    if not df.empty:
 
-    # =========================
-    # TABEL
-    # =========================
-    st.subheader("📋 Data Rekap")
-    st.write(styled_df)
+        # =========================
+        # 🔗 VLOOKUP (MERGE)
+        # =========================
+        df = df.merge(
+            db[["no_kontrak", "nama_cust", "tanggal_valid", "status_bayar"]],
+            on="no_kontrak",
+            how="left"
+        )
 
-    # =========================
-    # PILIH FORMAT DOWNLOAD
-    # =========================
-    format_file = st.selectbox(
-        "Pilih Format Download",
-        ["Excel (.xlsx)", "Excel 97-2003 (.xls)"]
-    )
+        # =========================
+        # 📊 HITUNG
+        # =========================
+        df["selisih_hari"] = (df["tanggal_valid"] - df["tgl_invoice"]).dt.days
 
-    # =========================
-    # EXPORT EXCEL
-    # =========================
-    def convert_to_excel(dataframe, format_type):
-        output = BytesIO()
+        def klasifikasi_od(x):
+            if pd.isna(x):
+                return "Tidak Valid"
+            elif 15 <= x <= 45:
+                return "OD1"
+            elif 46 <= x <= 75:
+                return "OD2"
+            elif x > 75:
+                return "OD3"
+            else:
+                return "Tidak Masuk OD"
 
-        if format_type == "Excel (.xlsx)":
+        df["kategori_od"] = df["selisih_hari"].apply(klasifikasi_od)
+
+        # =========================
+        # 🔥 PRIORITAS
+        # =========================
+        order_map = {
+            "OD3": 1,
+            "OD2": 2,
+            "OD1": 3,
+            "Tidak Masuk OD": 4,
+            "Tidak Valid": 5
+        }
+
+        df["priority"] = df["kategori_od"].map(order_map)
+
+        # kalau sudah bayar → paling bawah
+        df["paid_flag"] = df["status_bayar"].astype(str).str.lower().str.contains("ov")
+
+        df = df.sort_values(["paid_flag", "priority"])
+
+        # =========================
+        # 🎨 WARNA
+        # =========================
+        def highlight(row):
+            if row["paid_flag"]:
+                return ["background-color: red"] * len(row)
+            elif row["kategori_od"] == "OD3":
+                return ["background-color: #FF7F7F"] * len(row)
+            elif row["kategori_od"] == "OD2":
+                return ["background-color: #FFD700"] * len(row)
+            elif row["kategori_od"] == "OD1":
+                return ["background-color: #90EE90"] * len(row)
+            else:
+                return [""] * len(row)
+
+        styled_df = df.style.apply(highlight, axis=1)
+
+        # =========================
+        # 📋 TAMPILKAN
+        # =========================
+        st.subheader("📋 Data Monitoring")
+        st.write(styled_df)
+
+        # =========================
+        # 📥 DOWNLOAD
+        # =========================
+        def to_excel(data):
+            output = BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                dataframe.to_excel(writer, index=False, sheet_name='Rekap OD')
-            mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            filename = "rekap_od.xlsx"
+                data.to_excel(writer, index=False)
+            return output.getvalue()
 
-        else:
-            with pd.ExcelWriter(output, engine='xlwt') as writer:
-                dataframe.to_excel(writer, index=False, sheet_name='Rekap OD')
-            mime = "application/vnd.ms-excel"
-            filename = "rekap_od.xls"
-
-        return output.getvalue(), filename, mime
-
-    excel_data, file_name, mime_type = convert_to_excel(df, format_file)
-
-    st.download_button(
-        label="📥 Download Rekap",
-        data=excel_data,
-        file_name=file_name,
-        mime=mime_type
-    )
+        st.download_button(
+            "📥 Download Excel",
+            to_excel(df),
+            "monitoring_od.xlsx"
+        )
