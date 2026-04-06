@@ -1,7 +1,11 @@
-st.experimental_rerun()
 import streamlit as st
 import pandas as pd
 from supabase import create_client
+
+import time
+
+time.sleep(1)
+st.rerun()
 
 # =========================
 # CONFIG SUPABASE
