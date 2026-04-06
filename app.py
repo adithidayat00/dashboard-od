@@ -2,11 +2,6 @@ import streamlit as st
 import pandas as pd
 from supabase import create_client
 
-import time
-
-time.sleep(1)
-st.rerun()
-
 # =========================
 # CONFIG SUPABASE
 # =========================
@@ -191,3 +186,5 @@ if uploaded_file:
 
     except Exception as e:
         st.error(f"❌ Error: {e}")
+
+st.autorefresh(interval=60000, key="refresh")  # 60 detik
