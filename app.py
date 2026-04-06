@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from supabase import create_client
+from streamlit_autorefresh import st_autorefresh
 
 # =========================
 # CONFIG SUPABASE
@@ -16,7 +17,7 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 st.set_page_config(page_title="Monitoring OD", layout="wide")
 
 st.title("📊 Monitoring Overdue (OD)")
-
+st_autorefresh(interval=60000, key="refresh")
 # =========================
 # INPUT DATA
 # =========================
@@ -186,5 +187,3 @@ if uploaded_file:
 
     except Exception as e:
         st.error(f"❌ Error: {e}")
-
-st.autorefresh(interval=60000, key="refresh")  # 60 detik
