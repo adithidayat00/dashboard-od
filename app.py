@@ -17,7 +17,10 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 st.set_page_config(page_title="Monitoring OD", layout="wide")
 
 st.title("📊 Monitoring Overdue (OD)")
+
+# AUTO REFRESH (1 menit)
 st_autorefresh(interval=60000, key="refresh")
+
 # =========================
 # INPUT DATA
 # =========================
@@ -43,6 +46,11 @@ with st.form("input_form"):
                 }).execute()
 
                 st.success("✅ Data berhasil ditambahkan!")
+
+                # 🔥 FIX AUTO UPDATE
+                st.cache_data.clear()
+                st.rerun()
+
             except Exception as e:
                 st.error(f"Error: {e}")
         else:
@@ -65,21 +73,18 @@ if not df.empty:
     # SORTING
     df = df.sort_values(by=["is_paid", "aging_days"], ascending=[True, False])
 
-    # FORMAT AF BIAR RAPI
-    if "af" in df.columns:
-        df["af"] = df["af"].fillna(0)
-
-    # HIGHLIGHT HIJAU YANG BAGUS
-    def highlight_paid(row):
-        if row["is_paid"]:
-            return ["background-color: #2e7d32; color: white"] * len(row)
-        return [""] * len(row)
-
-if not df.empty:
+    # FORMAT AF
+    df["af"] = df["af"].fillna(0)
 
     # HAPUS KOLOM ID
     if "id" in df.columns:
         df = df.drop(columns=["id"])
+
+    # HIGHLIGHT
+    def highlight_paid(row):
+        if row["is_paid"]:
+            return ["background-color: #2e7d32; color: white"] * len(row)
+        return [""] * len(row)
 
     st.dataframe(
         df.style.apply(highlight_paid, axis=1),
@@ -90,9 +95,9 @@ if not df.empty:
 
 else:
     st.info("Belum ada data")
-    
+
 # =========================
-# DASHBOARD
+# DASHBOARD OD
 # =========================
 st.subheader("📈 Dashboard OD")
 
@@ -121,7 +126,27 @@ if not df.empty:
         st.info("Semua data sudah paid 🎉")
 
 # =========================
-# UPLOAD EXCEL MASTER DATA
+# DASHBOARD PER SALES
+# =========================
+st.subheader("📊 Summary by Sales (SO)")
+
+if not df.empty:
+
+    df_unpaid = df[df["is_paid"] == False]
+
+    if not df_unpaid.empty:
+
+        pivot = df_unpaid.groupby("salesacc").agg(
+            total_account=("noreg", "count"),
+            total_af=("af", "sum")
+        ).reset_index()
+
+        pivot = pivot.sort_values(by="total_af", ascending=False)
+
+        st.dataframe(pivot, use_container_width=True)
+
+# =========================
+# UPLOAD MASTER DATA
 # =========================
 st.subheader("📤 Upload Master Data (db_ascii)")
 
@@ -135,9 +160,6 @@ if uploaded_file:
     try:
         df_excel = pd.read_excel(uploaded_file)
 
-        # =========================
-        # RENAME KOLOM (MAPPING)
-        # =========================
         df_excel = df_excel.rename(columns={
             "NoReg": "noreg",
             "NamaCust": "nama_customer",
@@ -149,31 +171,18 @@ if uploaded_file:
             "AF": "af"
         })
 
-        # =========================
-        # AMBIL KOLOM YANG DIPAKE AJA
-        # =========================
         df_excel = df_excel[
             ["noreg", "nama_customer", "type", "dealer", "salesacc", "brand", "state", "state1", "af"]
         ]
 
-        # =========================
-        # CLEANING DATA
-        # =========================
-
-        # AF jadi numeric
         df_excel["af"] = pd.to_numeric(df_excel["af"], errors="coerce").fillna(0)
 
-        # convert semua ke string (hindarin error JSON)
         for col in df_excel.columns:
             if df_excel[col].dtype == "datetime64[ns]":
                 df_excel[col] = df_excel[col].astype(str)
 
-        # isi null
         df_excel = df_excel.fillna("")
 
-        # =========================
-        # PREVIEW
-        # =========================
         st.write("Preview Data:")
         st.dataframe(df_excel.head())
 
