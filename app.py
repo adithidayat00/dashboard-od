@@ -18,7 +18,7 @@ st.set_page_config(page_title="Monitoring OD", layout="wide")
 
 st.title("📊 Monitoring Overdue (OD)")
 
-# AUTO REFRESH (1 menit)
+# AUTO REFRESH
 st_autorefresh(interval=60000, key="refresh")
 
 # =========================
@@ -47,7 +47,7 @@ with st.form("input_form"):
 
                 st.success("✅ Data berhasil ditambahkan!")
 
-                # 🔥 FIX AUTO UPDATE
+                # AUTO REFRESH DATA
                 st.cache_data.clear()
                 st.rerun()
 
@@ -73,14 +73,18 @@ if not df.empty:
     # SORTING
     df = df.sort_values(by=["is_paid", "aging_days"], ascending=[True, False])
 
-    # FORMAT AF
+    # RESET INDEX BIAR RAPI
+    df = df.reset_index(drop=True)
+
+    # FORMAT AF KE RUPIAH
     df["af"] = df["af"].fillna(0)
+    df["af"] = df["af"].apply(lambda x: f"Rp {int(x):,}".replace(",", "."))
 
     # HAPUS KOLOM ID
     if "id" in df.columns:
         df = df.drop(columns=["id"])
 
-    # HIGHLIGHT
+    # HIGHLIGHT PAID
     def highlight_paid(row):
         if row["is_paid"]:
             return ["background-color: #2e7d32; color: white"] * len(row)
@@ -103,9 +107,12 @@ st.subheader("📈 Dashboard OD")
 
 if not df.empty:
 
-    df_unpaid = df[df["is_paid"] == False]
+    df_unpaid = df[df["is_paid"] == False].copy()
 
     if not df_unpaid.empty:
+
+        # BALIKIN AF KE ANGKA (karena tadi diformat)
+        df_unpaid["af"] = df_unpaid["af"].replace('[Rp .]', '', regex=True).astype(float)
 
         summary = df_unpaid.groupby("od_status").agg(
             total_account=("noreg", "count"),
@@ -115,26 +122,30 @@ if not df.empty:
         col1, col2, col3 = st.columns(3)
 
         for _, row in summary.iterrows():
+            af_format = f"Rp {int(row['total_af']):,}".replace(",", ".")
+
             if row["od_status"] == "OD 1":
-                col1.metric("OD 1", row["total_account"], f"AF: {int(row['total_af']):,}")
+                col1.metric("OD 1", row["total_account"], f"AF: {af_format}")
             elif row["od_status"] == "OD 2":
-                col2.metric("OD 2", row["total_account"], f"AF: {int(row['total_af']):,}")
+                col2.metric("OD 2", row["total_account"], f"AF: {af_format}")
             elif row["od_status"] == "OD 3":
-                col3.metric("OD 3", row["total_account"], f"AF: {int(row['total_af']):,}")
+                col3.metric("OD 3", row["total_account"], f"AF: {af_format}")
 
     else:
         st.info("Semua data sudah paid 🎉")
 
 # =========================
-# DASHBOARD PER SALES
+# SUMMARY PER SALES
 # =========================
 st.subheader("📊 Summary by Sales (SO)")
 
 if not df.empty:
 
-    df_unpaid = df[df["is_paid"] == False]
+    df_unpaid = df[df["is_paid"] == False].copy()
 
     if not df_unpaid.empty:
+
+        df_unpaid["af"] = df_unpaid["af"].replace('[Rp .]', '', regex=True).astype(float)
 
         pivot = df_unpaid.groupby("salesacc").agg(
             total_account=("noreg", "count"),
@@ -142,6 +153,11 @@ if not df.empty:
         ).reset_index()
 
         pivot = pivot.sort_values(by="total_af", ascending=False)
+
+        # FORMAT RUPIAH
+        pivot["total_af"] = pivot["total_af"].apply(lambda x: f"Rp {int(x):,}".replace(",", "."))
+
+        pivot = pivot.reset_index(drop=True)
 
         st.dataframe(pivot, use_container_width=True)
 
