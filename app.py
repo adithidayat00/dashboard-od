@@ -68,8 +68,16 @@ def load_data():
     if df1.empty:
         return df1
 
-    # JOIN by noreg
     df = df1.merge(df2, on="noreg", how="left")
+
+    # FIX DUPLICATE COLUMNS
+    df = df.rename(columns={
+        "af_y": "af",
+        "state_y": "state",
+        "state1_y": "state1"
+    })
+
+    df = df.drop(columns=["af_x", "state_x", "state1_x"], errors="ignore")
 
     return df
 
@@ -119,8 +127,8 @@ if not df.empty:
         df_unpaid["af"] = df_unpaid["af"].fillna(0)
         df_unpaid["af"] = df_unpaid["af"].apply(format_rupiah)
 
-        if "id_x" in df_unpaid.columns:
-            df_unpaid = df_unpaid.drop(columns=["id_x", "id_y"], errors="ignore")
+        if "id" in df_unpaid.columns:
+            df_unpaid = df_unpaid.drop(columns=["id"], errors="ignore")
 
         st.dataframe(df_unpaid, use_container_width=True)
 
@@ -140,8 +148,8 @@ if not df.empty:
         df_paid["af"] = df_paid["af"].fillna(0)
         df_paid["af"] = df_paid["af"].apply(format_rupiah)
 
-        if "id_x" in df_paid.columns:
-            df_paid = df_paid.drop(columns=["id_x", "id_y"], errors="ignore")
+        if "id" in df_paid.columns:
+            df_paid = df_paid.drop(columns=["id"], errors="ignore")
 
         st.dataframe(df_paid, use_container_width=True)
 
@@ -180,6 +188,34 @@ if not df.empty:
                 col2.metric("OD 2", row["total_account"], f"AF: {af_format}")
             elif row["od_status"] == "OD 3":
                 col3.metric("OD 3", row["total_account"], f"AF: {af_format}")
+
+# =========================
+# SUMMARY PER SALES
+# =========================
+st.subheader("📊 Summary by Sales (SO)")
+
+if not df.empty:
+
+    df_unpaid = df[df["is_paid"] == False].copy()
+
+    if not df_unpaid.empty:
+
+        df_unpaid["af"] = df_unpaid["af"].fillna(0)
+
+        pivot = df_unpaid.groupby("salesacc").agg(
+            total_account=("noreg", "count"),
+            total_af=("af", "sum")
+        ).reset_index()
+
+        pivot = pivot.sort_values(by="total_af", ascending=False)
+
+        pivot["total_af"] = pivot["total_af"].apply(
+            lambda x: f"Rp {int(x):,}".replace(",", ".")
+        )
+
+        pivot = pivot.reset_index(drop=True)
+
+        st.dataframe(pivot, use_container_width=True)
 
 # =========================
 # UPLOAD MASTER DATA
