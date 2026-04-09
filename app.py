@@ -55,23 +55,44 @@ with st.form("input_form"):
             st.warning("⚠️ No Reg harus diisi!")
 
 # =========================
-# LOAD DATA
+# LOAD & JOIN DATA
 # =========================
 @st.cache_data(ttl=60)
 def load_data():
-    response = supabase.table("monitoring_od").select("*").execute()
-    return pd.DataFrame(response.data)
+    monitoring = supabase.table("monitoring_od").select("*").execute()
+    ascii_data = supabase.table("db_ascii").select("*").execute()
+
+    df1 = pd.DataFrame(monitoring.data)
+    df2 = pd.DataFrame(ascii_data.data)
+
+    if df1.empty:
+        return df1
+
+    # JOIN by noreg
+    df = df1.merge(df2, on="noreg", how="left")
+
+    return df
 
 df = load_data()
 
+# =========================
+# MAIN TABLE
+# =========================
 st.subheader("📋 Monitoring Table")
 
 if not df.empty:
 
     # =========================
-    # PAKAI is_paid DARI DB
+    # DETECT PAID FROM ASCII
     # =========================
-    df["is_paid"] = df["is_paid"].fillna(False)
+    df["state"] = df["state"].astype(str)
+    df["state1"] = df["state1"].astype(str)
+
+    df["is_paid"] = (
+        df["state"].str.upper().str.strip() == "OV"
+    ) & (
+        df["state1"].str.upper().str.strip() == "OP"
+    )
 
     # =========================
     # SPLIT DATA
@@ -98,8 +119,8 @@ if not df.empty:
         df_unpaid["af"] = df_unpaid["af"].fillna(0)
         df_unpaid["af"] = df_unpaid["af"].apply(format_rupiah)
 
-        if "id" in df_unpaid.columns:
-            df_unpaid = df_unpaid.drop(columns=["id"])
+        if "id_x" in df_unpaid.columns:
+            df_unpaid = df_unpaid.drop(columns=["id_x", "id_y"], errors="ignore")
 
         st.dataframe(df_unpaid, use_container_width=True)
 
@@ -119,8 +140,8 @@ if not df.empty:
         df_paid["af"] = df_paid["af"].fillna(0)
         df_paid["af"] = df_paid["af"].apply(format_rupiah)
 
-        if "id" in df_paid.columns:
-            df_paid = df_paid.drop(columns=["id"])
+        if "id_x" in df_paid.columns:
+            df_paid = df_paid.drop(columns=["id_x", "id_y"], errors="ignore")
 
         st.dataframe(df_paid, use_container_width=True)
 
@@ -160,33 +181,47 @@ if not df.empty:
             elif row["od_status"] == "OD 3":
                 col3.metric("OD 3", row["total_account"], f"AF: {af_format}")
 
-    else:
-        st.info("Semua data sudah paid 🎉")
-
 # =========================
-# SUMMARY PER SALES
+# UPLOAD MASTER DATA
 # =========================
-st.subheader("📊 Summary by Sales (SO)")
+st.subheader("📤 Upload Master Data (db_ascii)")
 
-if not df.empty:
+uploaded_file = st.file_uploader(
+    "Upload Excel (xlsx / xls)",
+    type=["xlsx", "xls"]
+)
 
-    df_unpaid = df[df["is_paid"] == False].copy()
+if uploaded_file:
 
-    if not df_unpaid.empty:
+    try:
+        df_excel = pd.read_excel(uploaded_file)
 
-        df_unpaid["af"] = df_unpaid["af"].fillna(0)
+        df_excel = df_excel.rename(columns={
+            "NoReg": "noreg",
+            "NamaCust": "nama_customer",
+            "NamaDealer": "dealer",
+            "SalesACC": "salesacc",
+            "Merk": "brand",
+            "State": "state",
+            "State1": "state1",
+            "AF": "af"
+        })
 
-        pivot = df_unpaid.groupby("salesacc").agg(
-            total_account=("noreg", "count"),
-            total_af=("af", "sum")
-        ).reset_index()
+        df_excel = df_excel[
+            ["noreg", "nama_customer", "type", "dealer", "salesacc", "brand", "state", "state1", "af"]
+        ]
 
-        pivot = pivot.sort_values(by="total_af", ascending=False)
+        df_excel["af"] = pd.to_numeric(df_excel["af"], errors="coerce").fillna(0)
 
-        pivot["total_af"] = pivot["total_af"].apply(
-            lambda x: f"Rp {int(x):,}".replace(",", ".")
-        )
+        df_excel = df_excel.fillna("")
 
-        pivot = pivot.reset_index(drop=True)
+        st.write("Preview Data:")
+        st.dataframe(df_excel.head())
 
-        st.dataframe(pivot, use_container_width=True)
+        if st.button("Upload ke Database"):
+            data = df_excel.to_dict(orient="records")
+            supabase.table("db_ascii").upsert(data).execute()
+            st.success("✅ Master data berhasil diupload!")
+
+    except Exception as e:
+        st.error(f"❌ Error: {e}")
