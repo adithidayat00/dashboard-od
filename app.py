@@ -47,7 +47,6 @@ with st.form("input_form"):
 
                 st.success("✅ Data berhasil ditambahkan!")
 
-                # AUTO REFRESH DATA
                 st.cache_data.clear()
                 st.rerun()
 
@@ -70,32 +69,71 @@ df = load_data()
 
 if not df.empty:
 
-    # SORTING
-    df = df.sort_values(by=["is_paid", "aging_days"], ascending=[True, False])
+    # =========================
+    # DETECT PAID (OV OP)
+    # =========================
+    df["state"] = df["state"].astype(str)
+    df["state1"] = df["state1"].astype(str)
 
-    # RESET INDEX BIAR RAPI
-    df = df.reset_index(drop=True)
-
-    # FORMAT AF KE RUPIAH
-    df["af"] = df["af"].fillna(0)
-    df["af"] = df["af"].apply(lambda x: f"Rp {int(x):,}".replace(",", "."))
-
-    # HAPUS KOLOM ID
-    if "id" in df.columns:
-        df = df.drop(columns=["id"])
-
-    # HIGHLIGHT PAID
-    def highlight_paid(row):
-        if row["is_paid"]:
-            return ["background-color: #2e7d32; color: white"] * len(row)
-        return [""] * len(row)
-
-    st.dataframe(
-        df.style.apply(highlight_paid, axis=1),
-        use_container_width=True
+    df["is_paid"] = (
+        df["state"].str.upper().str.strip() == "OV"
+    ) & (
+        df["state1"].str.upper().str.strip() == "OP"
     )
 
-    st.caption("🟢 Hijau = Sudah Paid (OVOP)")
+    # =========================
+    # SPLIT DATA
+    # =========================
+    df_unpaid = df[df["is_paid"] == False].copy()
+    df_paid = df[df["is_paid"] == True].copy()
+
+    # =========================
+    # FORMAT AF
+    # =========================
+    def format_rupiah(x):
+        return f"Rp {int(x):,}".replace(",", ".")
+
+    # =========================
+    # UNPAID TABLE
+    # =========================
+    st.subheader("📋 Monitoring Table (Unpaid)")
+
+    if not df_unpaid.empty:
+
+        df_unpaid = df_unpaid.sort_values(by=["aging_days"], ascending=False)
+        df_unpaid = df_unpaid.reset_index(drop=True)
+
+        df_unpaid["af"] = df_unpaid["af"].fillna(0)
+        df_unpaid["af"] = df_unpaid["af"].apply(format_rupiah)
+
+        if "id" in df_unpaid.columns:
+            df_unpaid = df_unpaid.drop(columns=["id"])
+
+        st.dataframe(df_unpaid, use_container_width=True)
+
+    else:
+        st.info("Tidak ada data unpaid 🎉")
+
+    # =========================
+    # PAID TABLE (OV OP)
+    # =========================
+    st.subheader("✅ Paid Table (OV OP)")
+
+    if not df_paid.empty:
+
+        df_paid = df_paid.sort_values(by=["aging_days"], ascending=False)
+        df_paid = df_paid.reset_index(drop=True)
+
+        df_paid["af"] = df_paid["af"].fillna(0)
+        df_paid["af"] = df_paid["af"].apply(format_rupiah)
+
+        if "id" in df_paid.columns:
+            df_paid = df_paid.drop(columns=["id"])
+
+        st.dataframe(df_paid, use_container_width=True)
+
+    else:
+        st.info("Belum ada data yang sudah paid")
 
 else:
     st.info("Belum ada data")
@@ -111,8 +149,7 @@ if not df.empty:
 
     if not df_unpaid.empty:
 
-        # BALIKIN AF KE ANGKA (karena tadi diformat)
-        df_unpaid["af"] = df_unpaid["af"].replace('[Rp .]', '', regex=True).astype(float)
+        df_unpaid["af"] = df_unpaid["af"].fillna(0)
 
         summary = df_unpaid.groupby("od_status").agg(
             total_account=("noreg", "count"),
@@ -145,7 +182,7 @@ if not df.empty:
 
     if not df_unpaid.empty:
 
-        df_unpaid["af"] = df_unpaid["af"].replace('[Rp .]', '', regex=True).astype(float)
+        df_unpaid["af"] = df_unpaid["af"].fillna(0)
 
         pivot = df_unpaid.groupby("salesacc").agg(
             total_account=("noreg", "count"),
@@ -154,8 +191,9 @@ if not df.empty:
 
         pivot = pivot.sort_values(by="total_af", ascending=False)
 
-        # FORMAT RUPIAH
-        pivot["total_af"] = pivot["total_af"].apply(lambda x: f"Rp {int(x):,}".replace(",", "."))
+        pivot["total_af"] = pivot["total_af"].apply(
+            lambda x: f"Rp {int(x):,}".replace(",", ".")
+        )
 
         pivot = pivot.reset_index(drop=True)
 
