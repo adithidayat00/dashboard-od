@@ -46,7 +46,6 @@ with st.form("input_form"):
                 }).execute()
 
                 st.success("✅ Data berhasil ditambahkan!")
-
                 st.cache_data.clear()
                 st.rerun()
 
@@ -58,8 +57,6 @@ with st.form("input_form"):
 # =========================
 # LOAD DATA
 # =========================
-st.subheader("📋 Monitoring Table")
-
 @st.cache_data(ttl=60)
 def load_data():
     response = supabase.table("monitoring_od").select("*").execute()
@@ -67,19 +64,14 @@ def load_data():
 
 df = load_data()
 
+st.subheader("📋 Monitoring Table")
+
 if not df.empty:
 
     # =========================
-    # DETECT PAID (OV OP)
+    # PAKAI is_paid DARI DB
     # =========================
-    df["state"] = df["state"].astype(str)
-    df["state1"] = df["state1"].astype(str)
-
-    df["is_paid"] = (
-        df["state"].str.upper().str.strip() == "OV"
-    ) & (
-        df["state1"].str.upper().str.strip() == "OP"
-    )
+    df["is_paid"] = df["is_paid"].fillna(False)
 
     # =========================
     # SPLIT DATA
@@ -115,7 +107,7 @@ if not df.empty:
         st.info("Tidak ada data unpaid 🎉")
 
     # =========================
-    # PAID TABLE (OV OP)
+    # PAID TABLE
     # =========================
     st.subheader("✅ Paid Table (OV OP)")
 
@@ -198,55 +190,3 @@ if not df.empty:
         pivot = pivot.reset_index(drop=True)
 
         st.dataframe(pivot, use_container_width=True)
-
-# =========================
-# UPLOAD MASTER DATA
-# =========================
-st.subheader("📤 Upload Master Data (db_ascii)")
-
-uploaded_file = st.file_uploader(
-    "Upload Excel (xlsx / xls)",
-    type=["xlsx", "xls"]
-)
-
-if uploaded_file:
-
-    try:
-        df_excel = pd.read_excel(uploaded_file)
-
-        df_excel = df_excel.rename(columns={
-            "NoReg": "noreg",
-            "NamaCust": "nama_customer",
-            "NamaDealer": "dealer",
-            "SalesACC": "salesacc",
-            "Merk": "brand",
-            "State": "state",
-            "State1": "state1",
-            "AF": "af"
-        })
-
-        df_excel = df_excel[
-            ["noreg", "nama_customer", "type", "dealer", "salesacc", "brand", "state", "state1", "af"]
-        ]
-
-        df_excel["af"] = pd.to_numeric(df_excel["af"], errors="coerce").fillna(0)
-
-        for col in df_excel.columns:
-            if df_excel[col].dtype == "datetime64[ns]":
-                df_excel[col] = df_excel[col].astype(str)
-
-        df_excel = df_excel.fillna("")
-
-        st.write("Preview Data:")
-        st.dataframe(df_excel.head())
-
-        if st.button("Upload ke Database"):
-
-            data = df_excel.to_dict(orient="records")
-
-            supabase.table("db_ascii").upsert(data).execute()
-
-            st.success("✅ Master data berhasil diupload!")
-
-    except Exception as e:
-        st.error(f"❌ Error: {e}")
