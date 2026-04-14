@@ -133,6 +133,81 @@ if not df.empty:
 
     else:
         st.info("Semua data sudah paid 🎉")
+        
+# =========================
+# SUMMARY PER DEALER + AF
+# =========================
+st.subheader("🏢 Summary by Dealer (OD + AF)")
+
+if not df.empty:
+
+    df_unpaid = df[df["is_paid"] == False].copy()
+
+    if not df_unpaid.empty:
+
+        # BALIKIN AF KE ANGKA
+        df_unpaid["af"] = df_unpaid["af"].replace('[Rp .]', '', regex=True).astype(float)
+
+        # GROUPING DASAR
+        grouped = df_unpaid.groupby(["dealer", "od_status"]).agg(
+            total_account=("noreg", "count"),
+            total_af=("af", "sum")
+        ).reset_index()
+
+        # PIVOT ACCOUNT
+        pivot_acc = grouped.pivot(
+            index="dealer",
+            columns="od_status",
+            values="total_account"
+        ).fillna(0)
+
+        # PIVOT AF
+        pivot_af = grouped.pivot(
+            index="dealer",
+            columns="od_status",
+            values="total_af"
+        ).fillna(0)
+
+        # RENAME KOLOM BIAR JELAS
+        pivot_acc.columns = [f"{col}_ACC" for col in pivot_acc.columns]
+        pivot_af.columns = [f"{col}_AF" for col in pivot_af.columns]
+
+        # GABUNGIN
+        pivot_dealer = pd.concat([pivot_acc, pivot_af], axis=1).reset_index()
+
+        # TAMBAHIN KOLOM YANG MUNGKIN KOSONG
+        for col in ["OD 1_ACC", "OD 2_ACC", "OD 3_ACC", "OD 1_AF", "OD 2_AF", "OD 3_AF"]:
+            if col not in pivot_dealer.columns:
+                pivot_dealer[col] = 0
+
+        # TOTAL
+        pivot_dealer["TOTAL_ACC"] = (
+            pivot_dealer["OD 1_ACC"] +
+            pivot_dealer["OD 2_ACC"] +
+            pivot_dealer["OD 3_ACC"]
+        )
+
+        pivot_dealer["TOTAL_AF"] = (
+            pivot_dealer["OD 1_AF"] +
+            pivot_dealer["OD 2_AF"] +
+            pivot_dealer["OD 3_AF"]
+        )
+
+        # FORMAT RUPIAH
+        for col in ["OD 1_AF", "OD 2_AF", "OD 3_AF", "TOTAL_AF"]:
+            pivot_dealer[col] = pivot_dealer[col].apply(
+                lambda x: f"Rp {int(x):,}".replace(",", ".")
+            )
+
+        # SORT
+        pivot_dealer = pivot_dealer.sort_values(by="TOTAL_ACC", ascending=False)
+
+        pivot_dealer = pivot_dealer.reset_index(drop=True)
+
+        st.dataframe(pivot_dealer, use_container_width=True)
+
+    else:
+        st.info("Semua data sudah paid 🎉")
 
 # =========================
 # SUMMARY PER SALES
@@ -212,77 +287,3 @@ if uploaded_file:
 
     except Exception as e:
         st.error(f"❌ Error: {e}")
-# =========================
-# SUMMARY PER DEALER + AF
-# =========================
-st.subheader("🏢 Summary by Dealer (OD + AF)")
-
-if not df.empty:
-
-    df_unpaid = df[df["is_paid"] == False].copy()
-
-    if not df_unpaid.empty:
-
-        # BALIKIN AF KE ANGKA
-        df_unpaid["af"] = df_unpaid["af"].replace('[Rp .]', '', regex=True).astype(float)
-
-        # GROUPING DASAR
-        grouped = df_unpaid.groupby(["dealer", "od_status"]).agg(
-            total_account=("noreg", "count"),
-            total_af=("af", "sum")
-        ).reset_index()
-
-        # PIVOT ACCOUNT
-        pivot_acc = grouped.pivot(
-            index="dealer",
-            columns="od_status",
-            values="total_account"
-        ).fillna(0)
-
-        # PIVOT AF
-        pivot_af = grouped.pivot(
-            index="dealer",
-            columns="od_status",
-            values="total_af"
-        ).fillna(0)
-
-        # RENAME KOLOM BIAR JELAS
-        pivot_acc.columns = [f"{col}_ACC" for col in pivot_acc.columns]
-        pivot_af.columns = [f"{col}_AF" for col in pivot_af.columns]
-
-        # GABUNGIN
-        pivot_dealer = pd.concat([pivot_acc, pivot_af], axis=1).reset_index()
-
-        # TAMBAHIN KOLOM YANG MUNGKIN KOSONG
-        for col in ["OD 1_ACC", "OD 2_ACC", "OD 3_ACC", "OD 1_AF", "OD 2_AF", "OD 3_AF"]:
-            if col not in pivot_dealer.columns:
-                pivot_dealer[col] = 0
-
-        # TOTAL
-        pivot_dealer["TOTAL_ACC"] = (
-            pivot_dealer["OD 1_ACC"] +
-            pivot_dealer["OD 2_ACC"] +
-            pivot_dealer["OD 3_ACC"]
-        )
-
-        pivot_dealer["TOTAL_AF"] = (
-            pivot_dealer["OD 1_AF"] +
-            pivot_dealer["OD 2_AF"] +
-            pivot_dealer["OD 3_AF"]
-        )
-
-        # FORMAT RUPIAH
-        for col in ["OD 1_AF", "OD 2_AF", "OD 3_AF", "TOTAL_AF"]:
-            pivot_dealer[col] = pivot_dealer[col].apply(
-                lambda x: f"Rp {int(x):,}".replace(",", ".")
-            )
-
-        # SORT
-        pivot_dealer = pivot_dealer.sort_values(by="TOTAL_ACC", ascending=False)
-
-        pivot_dealer = pivot_dealer.reset_index(drop=True)
-
-        st.dataframe(pivot_dealer, use_container_width=True)
-
-    else:
-        st.info("Semua data sudah paid 🎉")
