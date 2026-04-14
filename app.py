@@ -158,7 +158,9 @@ if not df.empty:
             .str.strip()
         )
 
-        # BALIKIN AF KE ANGKA
+        # =========================
+        # CLEAN AF KE ANGKA
+        # =========================
         df_unpaid["af"] = df_unpaid["af"].replace('[Rp .]', '', regex=True).astype(float)
 
         # =========================
@@ -195,11 +197,11 @@ if not df.empty:
         pivot_dealer = pd.concat([pivot_acc, pivot_af], axis=1).reset_index()
 
         # =========================
-        # HANDLE KOLOM KOSONG
+        # HANDLE KOLOM YANG MUNGKIN BELUM ADA
         # =========================
         for col in [
-            "OD 1_ACC", "OD 2_ACC", "OD 3_ACC",
-            "OD 1_AF", "OD 2_AF", "OD 3_AF"
+            "CURRENT_ACC", "OD 1_ACC", "OD 2_ACC", "OD 3_ACC",
+            "CURRENT_AF", "OD 1_AF", "OD 2_AF", "OD 3_AF"
         ]:
             if col not in pivot_dealer.columns:
                 pivot_dealer[col] = 0
@@ -208,12 +210,14 @@ if not df.empty:
         # TOTAL
         # =========================
         pivot_dealer["TOTAL_ACC"] = (
+            pivot_dealer["CURRENT_ACC"] +
             pivot_dealer["OD 1_ACC"] +
             pivot_dealer["OD 2_ACC"] +
             pivot_dealer["OD 3_ACC"]
         )
 
         pivot_dealer["TOTAL_AF"] = (
+            pivot_dealer["CURRENT_AF"] +
             pivot_dealer["OD 1_AF"] +
             pivot_dealer["OD 2_AF"] +
             pivot_dealer["OD 3_AF"]
@@ -222,7 +226,7 @@ if not df.empty:
         # =========================
         # FORMAT RUPIAH
         # =========================
-        for col in ["OD 1_AF", "OD 2_AF", "OD 3_AF", "TOTAL_AF"]:
+        for col in ["CURRENT_AF", "OD 1_AF", "OD 2_AF", "OD 3_AF", "TOTAL_AF"]:
             pivot_dealer[col] = pivot_dealer[col].apply(
                 lambda x: f"Rp {int(x):,}".replace(",", ".")
             )
@@ -231,8 +235,21 @@ if not df.empty:
         # SORTING
         # =========================
         pivot_dealer = pivot_dealer.sort_values(by="TOTAL_ACC", ascending=False)
-
         pivot_dealer = pivot_dealer.reset_index(drop=True)
+
+        # =========================
+        # URUTAN KOLOM SESUAI REQUEST
+        # =========================
+        desired_order = [
+            "dealer_clean",
+            "CURRENT_ACC", "CURRENT_AF",
+            "OD 1_ACC", "OD 1_AF",
+            "OD 2_ACC", "OD 2_AF",
+            "OD 3_ACC", "OD 3_AF",
+            "TOTAL_ACC", "TOTAL_AF"
+        ]
+
+        pivot_dealer = pivot_dealer[desired_order]
 
         # =========================
         # OUTPUT
