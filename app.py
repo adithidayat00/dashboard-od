@@ -46,8 +46,6 @@ with st.form("input_form"):
                 }).execute()
 
                 st.success("✅ Data berhasil ditambahkan!")
-
-                # AUTO REFRESH DATA
                 st.cache_data.clear()
                 st.rerun()
 
@@ -72,30 +70,50 @@ if not df.empty:
 
     # SORTING
     df = df.sort_values(by=["is_paid", "aging_days"], ascending=[True, False])
-
-    # RESET INDEX BIAR RAPI
     df = df.reset_index(drop=True)
 
-    # FORMAT AF KE RUPIAH
+    # FORMAT AF
     df["af"] = df["af"].fillna(0)
     df["af"] = df["af"].apply(lambda x: f"Rp {int(x):,}".replace(",", "."))
 
-    # HAPUS KOLOM ID
+    # DROP ID
     if "id" in df.columns:
         df = df.drop(columns=["id"])
 
-    # HIGHLIGHT PAID
-    def highlight_paid(row):
+    # =========================
+    # 🎨 STYLE FUNCTION
+    # =========================
+    def highlight_row(row):
+        # PRIORITAS: PAID
         if row["is_paid"]:
             return ["background-color: #2e7d32; color: white"] * len(row)
+
+        # OD COLOR
+        if row["od_status"] == "OD 3":
+            return ["background-color: #ffccc7"] * len(row)  # merah soft
+        elif row["od_status"] == "OD 2":
+            return ["background-color: #ffe7ba"] * len(row)  # orange soft
+        elif row["od_status"] == "OD 1":
+            return ["background-color: #fff1b8"] * len(row)  # kuning soft
+
         return [""] * len(row)
 
+    # =========================
+    # DISPLAY
+    # =========================
     st.dataframe(
-        df.style.apply(highlight_paid, axis=1),
+        df.style.apply(highlight_row, axis=1),
         use_container_width=True
     )
 
-    st.caption("🟢 Hijau = Sudah Paid (OVOP)")
+    # LEGEND
+    st.markdown("""
+    **Keterangan Warna:**
+    - 🟢 Hijau = Paid (OVOP)
+    - 🟥 Merah = OD 3
+    - 🟧 Orange = OD 2
+    - 🟨 Kuning = OD 1
+    """)
 
 else:
     st.info("Belum ada data")
@@ -111,7 +129,6 @@ if not df.empty:
 
     if not df_unpaid.empty:
 
-        # BALIKIN AF KE ANGKA (karena tadi diformat)
         df_unpaid["af"] = df_unpaid["af"].replace('[Rp .]', '', regex=True).astype(float)
 
         summary = df_unpaid.groupby("od_status").agg(
@@ -125,19 +142,19 @@ if not df.empty:
             af_format = f"Rp {int(row['total_af']):,}".replace(",", ".")
 
             if row["od_status"] == "OD 1":
-                col1.metric("OD 1", row["total_account"], f"AF: {af_format}")
+                col1.metric("🟨 OD 1", row["total_account"], f"AF: {af_format}")
             elif row["od_status"] == "OD 2":
-                col2.metric("OD 2", row["total_account"], f"AF: {af_format}")
+                col2.metric("🟧 OD 2", row["total_account"], f"AF: {af_format}")
             elif row["od_status"] == "OD 3":
-                col3.metric("OD 3", row["total_account"], f"AF: {af_format}")
+                col3.metric("🟥 OD 3", row["total_account"], f"AF: {af_format}")
 
     else:
         st.info("Semua data sudah paid 🎉")
-        
+
 # =========================
-# SUMMARY DEALER (AUTO + OD BREAKDOWN + AF)
+# SUMMARY DEALER
 # =========================
-st.subheader("🏢 Summary Dealer (Auto from OD)")
+st.subheader("🏢 Summary Dealer")
 
 if not df.empty:
 
@@ -145,125 +162,46 @@ if not df.empty:
 
     if not df_unpaid.empty:
 
-        # =========================
-        # CLEANING DEALER
-        # =========================
         df_unpaid["dealer_clean"] = (
             df_unpaid["dealer"]
             .fillna("")
             .str.upper()
             .str.replace(",PT", "", regex=False)
-            .str.replace("A.YANI", "A YANI", regex=False)
-            .str.replace("AYN", "AYANI", regex=False)
             .str.strip()
         )
 
-        # =========================
-        # CLEAN AF KE ANGKA
-        # =========================
         df_unpaid["af"] = df_unpaid["af"].replace('[Rp .]', '', regex=True).astype(float)
 
-        # =========================
-        # GROUPING
-        # =========================
         grouped = df_unpaid.groupby(["dealer_clean", "od_status"]).agg(
             total_account=("noreg", "count"),
             total_af=("af", "sum")
         ).reset_index()
 
-        # =========================
-        # PIVOT ACCOUNT
-        # =========================
-        pivot_acc = grouped.pivot(
-            index="dealer_clean",
-            columns="od_status",
-            values="total_account"
-        ).fillna(0)
+        pivot_acc = grouped.pivot(index="dealer_clean", columns="od_status", values="total_account").fillna(0)
+        pivot_af = grouped.pivot(index="dealer_clean", columns="od_status", values="total_af").fillna(0)
 
-        # =========================
-        # PIVOT AF
-        # =========================
-        pivot_af = grouped.pivot(
-            index="dealer_clean",
-            columns="od_status",
-            values="total_af"
-        ).fillna(0)
-
-        # RENAME KOLOM
         pivot_acc.columns = [f"{col}_ACC" for col in pivot_acc.columns]
         pivot_af.columns = [f"{col}_AF" for col in pivot_af.columns]
 
-        # GABUNG
-        pivot_dealer = pd.concat([pivot_acc, pivot_af], axis=1).reset_index()
+        pivot = pd.concat([pivot_acc, pivot_af], axis=1).reset_index()
 
-        # =========================
-        # HANDLE KOLOM YANG MUNGKIN BELUM ADA
-        # =========================
-        for col in [
-            "CURRENT_ACC", "OD 1_ACC", "OD 2_ACC", "OD 3_ACC",
-            "CURRENT_AF", "OD 1_AF", "OD 2_AF", "OD 3_AF"
-        ]:
-            if col not in pivot_dealer.columns:
-                pivot_dealer[col] = 0
+        pivot = pivot.fillna(0)
 
-        # =========================
-        # TOTAL
-        # =========================
-        pivot_dealer["TOTAL_ACC"] = (
-            pivot_dealer["CURRENT_ACC"] +
-            pivot_dealer["OD 1_ACC"] +
-            pivot_dealer["OD 2_ACC"] +
-            pivot_dealer["OD 3_ACC"]
-        )
+        pivot["TOTAL_ACC"] = pivot.filter(like="_ACC").sum(axis=1)
+        pivot["TOTAL_AF"] = pivot.filter(like="_AF").sum(axis=1)
 
-        pivot_dealer["TOTAL_AF"] = (
-            pivot_dealer["CURRENT_AF"] +
-            pivot_dealer["OD 1_AF"] +
-            pivot_dealer["OD 2_AF"] +
-            pivot_dealer["OD 3_AF"]
-        )
+        for col in pivot.columns:
+            if "_AF" in col:
+                pivot[col] = pivot[col].apply(lambda x: f"Rp {int(x):,}".replace(",", "."))
 
-        # =========================
-        # FORMAT RUPIAH
-        # =========================
-        for col in ["CURRENT_AF", "OD 1_AF", "OD 2_AF", "OD 3_AF", "TOTAL_AF"]:
-            pivot_dealer[col] = pivot_dealer[col].apply(
-                lambda x: f"Rp {int(x):,}".replace(",", ".")
-            )
+        pivot = pivot.sort_values(by="TOTAL_ACC", ascending=False)
 
-        # =========================
-        # SORTING
-        # =========================
-        pivot_dealer = pivot_dealer.sort_values(by="TOTAL_ACC", ascending=False)
-        pivot_dealer = pivot_dealer.reset_index(drop=True)
-
-        # =========================
-        # URUTAN KOLOM SESUAI REQUEST
-        # =========================
-        desired_order = [
-            "dealer_clean",
-            "CURRENT_ACC", "CURRENT_AF",
-            "OD 1_ACC", "OD 1_AF",
-            "OD 2_ACC", "OD 2_AF",
-            "OD 3_ACC", "OD 3_AF",
-            "TOTAL_ACC", "TOTAL_AF"
-        ]
-
-        pivot_dealer = pivot_dealer[desired_order]
-
-        # =========================
-        # OUTPUT
-        # =========================
-        st.write(f"Total Dealer Aktif OD: {pivot_dealer.shape[0]}")
-        st.dataframe(pivot_dealer, use_container_width=True)
-
-    else:
-        st.info("Semua data sudah paid 🎉")
+        st.dataframe(pivot, use_container_width=True)
 
 # =========================
-# SUMMARY PER SALES
+# SUMMARY SALES
 # =========================
-st.subheader("📊 Summary by Sales (SO)")
+st.subheader("📊 Summary by Sales")
 
 if not df.empty:
 
@@ -280,61 +218,37 @@ if not df.empty:
 
         pivot = pivot.sort_values(by="total_af", ascending=False)
 
-        # FORMAT RUPIAH
         pivot["total_af"] = pivot["total_af"].apply(lambda x: f"Rp {int(x):,}".replace(",", "."))
-
-        pivot = pivot.reset_index(drop=True)
 
         st.dataframe(pivot, use_container_width=True)
 
 # =========================
 # UPLOAD MASTER DATA
 # =========================
-st.subheader("📤 Upload Master Data (db_ascii)")
+st.subheader("📤 Upload Master Data")
 
-uploaded_file = st.file_uploader(
-    "Upload Excel (xlsx / xls)",
-    type=["xlsx", "xls"]
-)
+uploaded_file = st.file_uploader("Upload Excel", type=["xlsx", "xls"])
 
 if uploaded_file:
 
-    try:
-        df_excel = pd.read_excel(uploaded_file)
+    df_excel = pd.read_excel(uploaded_file)
 
-        df_excel = df_excel.rename(columns={
-            "NoReg": "noreg",
-            "NamaCust": "nama_customer",
-            "NamaDealer": "dealer",
-            "SalesACC": "salesacc",
-            "Merk": "brand",
-            "State": "state",
-            "State1": "state1",
-            "AF": "af"
-        })
+    df_excel = df_excel.rename(columns={
+        "NoReg": "noreg",
+        "NamaCust": "nama_customer",
+        "NamaDealer": "dealer",
+        "SalesACC": "salesacc",
+        "Merk": "brand",
+        "State": "state",
+        "State1": "state1",
+        "AF": "af"
+    })
 
-        df_excel = df_excel[
-            ["noreg", "nama_customer", "type", "dealer", "salesacc", "brand", "state", "state1", "af"]
-        ]
+    df_excel["af"] = pd.to_numeric(df_excel["af"], errors="coerce").fillna(0)
 
-        df_excel["af"] = pd.to_numeric(df_excel["af"], errors="coerce").fillna(0)
+    st.dataframe(df_excel.head())
 
-        for col in df_excel.columns:
-            if df_excel[col].dtype == "datetime64[ns]":
-                df_excel[col] = df_excel[col].astype(str)
-
-        df_excel = df_excel.fillna("")
-
-        st.write("Preview Data:")
-        st.dataframe(df_excel.head())
-
-        if st.button("Upload ke Database"):
-
-            data = df_excel.to_dict(orient="records")
-
-            supabase.table("db_ascii").upsert(data).execute()
-
-            st.success("✅ Master data berhasil diupload!")
-
-    except Exception as e:
-        st.error(f"❌ Error: {e}")
+    if st.button("Upload ke Database"):
+        data = df_excel.to_dict(orient="records")
+        supabase.table("db_ascii").upsert(data).execute()
+        st.success("✅ Upload berhasil!")
