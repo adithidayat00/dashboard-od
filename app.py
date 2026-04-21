@@ -212,7 +212,7 @@ if not df.empty:
         st.dataframe(pivot, use_container_width=True)
 
 # =========================
-# UPLOAD MASTER DATA (FINAL FIX)
+# UPLOAD MASTER DATA (FINAL FIX ALL)
 # =========================
 st.subheader("📤 Upload Master Data")
 
@@ -240,12 +240,20 @@ if uploaded_file:
     if st.button("Upload ke Database"):
 
         try:
-            # ✅ CLEAN DATA (ANTI ERROR JSON)
-            df_clean = df_excel.astype(object).where(pd.notnull(df_excel), None)
+            df_clean = df_excel.copy()
 
+            # ✅ FIX TIMESTAMP (WAJIB)
+            for col in df_clean.columns:
+                if pd.api.types.is_datetime64_any_dtype(df_clean[col]):
+                    df_clean[col] = df_clean[col].astype(str)
+
+            # ✅ FIX NaN
+            df_clean = df_clean.astype(object).where(pd.notnull(df_clean), None)
+
+            # ✅ TO DICT
             data = df_clean.to_dict(orient="records")
 
-            # ✅ BATCH INSERT (AMAN DATA BESAR)
+            # ✅ BATCH UPLOAD
             batch_size = 500
             for i in range(0, len(data), batch_size):
                 supabase.table("db_ascii").upsert(data[i:i+batch_size]).execute()
