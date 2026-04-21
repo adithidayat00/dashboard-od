@@ -18,38 +18,7 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 st.set_page_config(page_title="Monitoring OD", layout="wide")
 st.title("📊 Monitoring Overdue (OD)")
 
-# AUTO REFRESH
 st_autorefresh(interval=60000, key="refresh")
-
-# =========================
-# INPUT DATA
-# =========================
-st.subheader("➕ Input Invoice")
-
-with st.form("input_form"):
-    col1, col2 = st.columns(2)
-
-    noreg = col1.text_input("No Reg")
-    invoice_date = col2.date_input("Tanggal Invoice")
-
-    submitted = st.form_submit_button("Submit")
-
-    if submitted:
-        if noreg:
-            try:
-                supabase.table("input_data").insert({
-                    "noreg": noreg,
-                    "invoice_date": str(invoice_date)
-                }).execute()
-
-                st.success("✅ Data berhasil ditambahkan!")
-                st.cache_data.clear()
-                st.rerun()
-
-            except Exception as e:
-                st.error(f"Error: {e}")
-        else:
-            st.warning("⚠️ No Reg harus diisi!")
 
 # =========================
 # LOAD DATA
@@ -62,7 +31,7 @@ def load_data():
 df = load_data()
 
 # =========================
-# TABLE
+# MONITORING TABLE
 # =========================
 st.subheader("📋 Monitoring Table")
 
@@ -74,9 +43,6 @@ if not df.empty:
     df["af"] = df["af"].fillna(0)
     df["af"] = df["af"].apply(lambda x: f"Rp {int(x):,}".replace(",", "."))
 
-    if "id" in df.columns:
-        df = df.drop(columns=["id"])
-
     def highlight_row(row):
         if row["is_paid"]:
             return ["background-color: #2e7d32; color: white"] * len(row)
@@ -86,70 +52,83 @@ if not df.empty:
             return ["background-color: #ffe7ba"] * len(row)
         elif row["od_status"] == "OD 1":
             return ["background-color: #fff1b8"] * len(row)
+        elif row["od_status"] == "CURRENT":
+            return ["background-color: #e6f4ff"] * len(row)
         return [""] * len(row)
 
     st.dataframe(df.style.apply(highlight_row, axis=1), use_container_width=True)
 
-else:
-    st.info("Belum ada data")
-
 # =========================
-# DASHBOARD OD
+# DASHBOARD OD + CURRENT
 # =========================
 st.subheader("📈 Dashboard OD")
 
 if not df.empty:
+
     df_unpaid = df[df["is_paid"] == False].copy()
+    df_unpaid["af"] = df_unpaid["af"].replace('[Rp .]', '', regex=True).astype(float)
 
-    if not df_unpaid.empty:
+    summary = df_unpaid.groupby("od_status").agg(
+        total_account=("noreg", "count"),
+        total_af=("af", "sum")
+    ).reset_index()
 
-        df_unpaid["af"] = df_unpaid["af"].replace('[Rp .]', '', regex=True).astype(float)
+    col1, col2, col3, col4 = st.columns(4)
 
-        summary = df_unpaid.groupby("od_status").agg(
-            total_account=("noreg", "count"),
-            total_af=("af", "sum")
-        ).reset_index()
+    for _, row in summary.iterrows():
+        af_format = f"Rp {int(row['total_af']):,}".replace(",", ".")
 
-        col1, col2, col3 = st.columns(3)
-
-        for _, row in summary.iterrows():
-            af_format = f"Rp {int(row['total_af']):,}".replace(",", ".")
-
-            if row["od_status"] == "OD 1":
-                col1.metric("🟨 OD 1", row["total_account"], f"AF: {af_format}")
-            elif row["od_status"] == "OD 2":
-                col2.metric("🟧 OD 2", row["total_account"], f"AF: {af_format}")
-            elif row["od_status"] == "OD 3":
-                col3.metric("🟥 OD 3", row["total_account"], f"AF: {af_format}")
+        if row["od_status"] == "CURRENT":
+            col1.metric("🔵 CURRENT", row["total_account"], af_format)
+        elif row["od_status"] == "OD 1":
+            col2.metric("🟨 OD 1", row["total_account"], af_format)
+        elif row["od_status"] == "OD 2":
+            col3.metric("🟧 OD 2", row["total_account"], af_format)
+        elif row["od_status"] == "OD 3":
+            col4.metric("🟥 OD 3", row["total_account"], af_format)
 
 # =========================
-# SUMMARY DEALER
+# SUMMARY DEALER (ADA CURRENT + AF)
 # =========================
 st.subheader("🏢 Summary Dealer")
 
 if not df.empty:
+
     df_unpaid = df[df["is_paid"] == False].copy()
 
-    if not df_unpaid.empty:
+    df_unpaid["dealer_clean"] = (
+        df_unpaid["dealer"]
+        .fillna("")
+        .str.upper()
+        .str.strip()
+    )
 
-        df_unpaid["dealer_clean"] = (
-            df_unpaid["dealer"]
-            .fillna("")
-            .str.upper()
-            .str.replace(",PT", "", regex=False)
-            .str.strip()
-        )
+    df_unpaid["af"] = df_unpaid["af"].replace('[Rp .]', '', regex=True).astype(float)
 
-        df_unpaid["af"] = df_unpaid["af"].replace('[Rp .]', '', regex=True).astype(float)
+    grouped = df_unpaid.groupby(["dealer_clean", "od_status"]).agg(
+        total_account=("noreg", "count"),
+        total_af=("af", "sum")
+    ).reset_index()
 
-        grouped = df_unpaid.groupby(["dealer_clean", "od_status"]).agg(
-            total_account=("noreg", "count"),
-            total_af=("af", "sum")
-        ).reset_index()
+    pivot_acc = grouped.pivot(index="dealer_clean", columns="od_status", values="total_account").fillna(0)
+    pivot_af = grouped.pivot(index="dealer_clean", columns="od_status", values="total_af").fillna(0)
 
-        pivot = grouped.pivot(index="dealer_clean", columns="od_status", values="total_account").fillna(0)
+    pivot_acc.columns = [f"{col}_ACC" for col in pivot_acc.columns]
+    pivot_af.columns = [f"{col}_AF" for col in pivot_af.columns]
 
-        st.dataframe(pivot, use_container_width=True)
+    pivot = pd.concat([pivot_acc, pivot_af], axis=1).reset_index()
+
+    pivot["TOTAL_ACC"] = pivot.filter(like="_ACC").sum(axis=1)
+    pivot["TOTAL_AF"] = pivot.filter(like="_AF").sum(axis=1)
+
+    # format rupiah
+    for col in pivot.columns:
+        if "_AF" in col or col == "TOTAL_AF":
+            pivot[col] = pivot[col].apply(lambda x: f"Rp {int(x):,}".replace(",", "."))
+
+    pivot = pivot.sort_values(by="TOTAL_ACC", ascending=False)
+
+    st.dataframe(pivot, use_container_width=True)
 
 # =========================
 # SUMMARY SALES
@@ -157,18 +136,20 @@ if not df.empty:
 st.subheader("📊 Summary by Sales")
 
 if not df.empty:
+
     df_unpaid = df[df["is_paid"] == False].copy()
+    df_unpaid["af"] = df_unpaid["af"].replace('[Rp .]', '', regex=True).astype(float)
 
-    if not df_unpaid.empty:
+    pivot = df_unpaid.groupby("salesacc").agg(
+        total_account=("noreg", "count"),
+        total_af=("af", "sum")
+    ).reset_index()
 
-        df_unpaid["af"] = df_unpaid["af"].replace('[Rp .]', '', regex=True).astype(float)
+    pivot = pivot.sort_values(by="total_af", ascending=False)
 
-        pivot = df_unpaid.groupby("salesacc").agg(
-            total_account=("noreg", "count"),
-            total_af=("af", "sum")
-        ).reset_index()
+    pivot["total_af"] = pivot["total_af"].apply(lambda x: f"Rp {int(x):,}".replace(",", "."))
 
-        st.dataframe(pivot, use_container_width=True)
+    st.dataframe(pivot, use_container_width=True)
 
 # =========================
 # UPLOAD (FIXED)
@@ -201,12 +182,15 @@ if uploaded_file:
         try:
             df_clean = df_excel.copy()
 
+            # FIX TIMESTAMP
             for col in df_clean.columns:
                 if pd.api.types.is_datetime64_any_dtype(df_clean[col]):
                     df_clean[col] = df_clean[col].astype(str)
 
+            # FIX NaN
             df_clean = df_clean.astype(object).where(pd.notnull(df_clean), None)
 
+            # FILTER KOLOM
             allowed_columns = [
                 "noreg", "nama_customer", "dealer",
                 "salesacc", "brand", "state",
