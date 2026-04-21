@@ -40,6 +40,10 @@ if not df.empty:
     df = df.sort_values(by=["is_paid", "aging_days"], ascending=[True, False])
     df = df.reset_index(drop=True)
 
+    # ❌ HAPUS ID
+    if "id" in df.columns:
+        df = df.drop(columns=["id"])
+
     df["af"] = df["af"].fillna(0)
     df["af"] = df["af"].apply(lambda x: f"Rp {int(x):,}".replace(",", "."))
 
@@ -59,7 +63,7 @@ if not df.empty:
     st.dataframe(df.style.apply(highlight_row, axis=1), use_container_width=True)
 
 # =========================
-# DASHBOARD OD + CURRENT
+# DASHBOARD
 # =========================
 st.subheader("📈 Dashboard OD")
 
@@ -88,7 +92,7 @@ if not df.empty:
             col4.metric("🟥 OD 3", row["total_account"], af_format)
 
 # =========================
-# SUMMARY DEALER (ADA CURRENT + AF)
+# SUMMARY DEALER (SORT BY AF)
 # =========================
 st.subheader("🏢 Summary Dealer")
 
@@ -121,12 +125,16 @@ if not df.empty:
     pivot["TOTAL_ACC"] = pivot.filter(like="_ACC").sum(axis=1)
     pivot["TOTAL_AF"] = pivot.filter(like="_AF").sum(axis=1)
 
-    # format rupiah
+    # 🔥 SORT PRIORITAS
+    pivot = pivot.sort_values(
+        by=["CURRENT_AF", "OD 1_AF", "OD 2_AF"],
+        ascending=False
+    )
+
+    # FORMAT RUPIAH
     for col in pivot.columns:
         if "_AF" in col or col == "TOTAL_AF":
             pivot[col] = pivot[col].apply(lambda x: f"Rp {int(x):,}".replace(",", "."))
-
-    pivot = pivot.sort_values(by="TOTAL_ACC", ascending=False)
 
     st.dataframe(pivot, use_container_width=True)
 
@@ -152,7 +160,7 @@ if not df.empty:
     st.dataframe(pivot, use_container_width=True)
 
 # =========================
-# UPLOAD (FIXED)
+# UPLOAD
 # =========================
 st.subheader("📤 Upload Master Data")
 
@@ -182,15 +190,12 @@ if uploaded_file:
         try:
             df_clean = df_excel.copy()
 
-            # FIX TIMESTAMP
             for col in df_clean.columns:
                 if pd.api.types.is_datetime64_any_dtype(df_clean[col]):
                     df_clean[col] = df_clean[col].astype(str)
 
-            # FIX NaN
             df_clean = df_clean.astype(object).where(pd.notnull(df_clean), None)
 
-            # FILTER KOLOM
             allowed_columns = [
                 "noreg", "nama_customer", "dealer",
                 "salesacc", "brand", "state",
