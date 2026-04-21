@@ -21,6 +21,36 @@ st.title("📊 Monitoring Overdue (OD)")
 st_autorefresh(interval=60000, key="refresh")
 
 # =========================
+# INPUT DATA (BALIK LAGI)
+# =========================
+st.subheader("➕ Input Invoice")
+
+with st.form("input_form"):
+    col1, col2 = st.columns(2)
+
+    noreg = col1.text_input("No Reg")
+    invoice_date = col2.date_input("Tanggal Invoice")
+
+    submitted = st.form_submit_button("Submit")
+
+    if submitted:
+        if noreg:
+            try:
+                supabase.table("input_data").insert({
+                    "noreg": noreg,
+                    "invoice_date": str(invoice_date)
+                }).execute()
+
+                st.success("✅ Data berhasil ditambahkan!")
+                st.cache_data.clear()
+                st.rerun()
+
+            except Exception as e:
+                st.error(f"❌ Error: {e}")
+        else:
+            st.warning("⚠️ No Reg harus diisi!")
+
+# =========================
 # LOAD DATA
 # =========================
 @st.cache_data(ttl=60)
@@ -62,8 +92,11 @@ if not df.empty:
 
     st.dataframe(df.style.apply(highlight_row, axis=1), use_container_width=True)
 
+else:
+    st.info("Belum ada data")
+
 # =========================
-# DASHBOARD
+# DASHBOARD OD + CURRENT
 # =========================
 st.subheader("📈 Dashboard OD")
 
@@ -92,7 +125,7 @@ if not df.empty:
             col4.metric("🟥 OD 3", row["total_account"], af_format)
 
 # =========================
-# SUMMARY DEALER (SORT BY AF)
+# SUMMARY DEALER
 # =========================
 st.subheader("🏢 Summary Dealer")
 
@@ -125,7 +158,7 @@ if not df.empty:
     pivot["TOTAL_ACC"] = pivot.filter(like="_ACC").sum(axis=1)
     pivot["TOTAL_AF"] = pivot.filter(like="_AF").sum(axis=1)
 
-    # 🔥 SORT PRIORITAS
+    # 🔥 SORT PRIORITAS (FIX)
     pivot = pivot.sort_values(
         by=["CURRENT_AF", "OD 1_AF", "OD 2_AF"],
         ascending=False
@@ -160,7 +193,7 @@ if not df.empty:
     st.dataframe(pivot, use_container_width=True)
 
 # =========================
-# UPLOAD
+# UPLOAD MASTER DATA
 # =========================
 st.subheader("📤 Upload Master Data")
 
@@ -190,12 +223,15 @@ if uploaded_file:
         try:
             df_clean = df_excel.copy()
 
+            # FIX TIMESTAMP
             for col in df_clean.columns:
                 if pd.api.types.is_datetime64_any_dtype(df_clean[col]):
                     df_clean[col] = df_clean[col].astype(str)
 
+            # FIX NaN
             df_clean = df_clean.astype(object).where(pd.notnull(df_clean), None)
 
+            # FILTER KOLOM
             allowed_columns = [
                 "noreg", "nama_customer", "dealer",
                 "salesacc", "brand", "state",
