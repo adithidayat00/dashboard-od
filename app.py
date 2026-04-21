@@ -91,10 +91,7 @@ if not df.empty:
 
         return [""] * len(row)
 
-    st.dataframe(
-        df.style.apply(highlight_row, axis=1),
-        use_container_width=True
-    )
+    st.dataframe(df.style.apply(highlight_row, axis=1), use_container_width=True)
 
     st.markdown("""
     **Keterangan Warna:**
@@ -108,111 +105,7 @@ else:
     st.info("Belum ada data")
 
 # =========================
-# DASHBOARD OD
-# =========================
-st.subheader("📈 Dashboard OD")
-
-if not df.empty:
-
-    df_unpaid = df[df["is_paid"] == False].copy()
-
-    if not df_unpaid.empty:
-
-        df_unpaid["af"] = df_unpaid["af"].replace('[Rp .]', '', regex=True).astype(float)
-
-        summary = df_unpaid.groupby("od_status").agg(
-            total_account=("noreg", "count"),
-            total_af=("af", "sum")
-        ).reset_index()
-
-        col1, col2, col3 = st.columns(3)
-
-        for _, row in summary.iterrows():
-            af_format = f"Rp {int(row['total_af']):,}".replace(",", ".")
-
-            if row["od_status"] == "OD 1":
-                col1.metric("🟨 OD 1", row["total_account"], f"AF: {af_format}")
-            elif row["od_status"] == "OD 2":
-                col2.metric("🟧 OD 2", row["total_account"], f"AF: {af_format}")
-            elif row["od_status"] == "OD 3":
-                col3.metric("🟥 OD 3", row["total_account"], f"AF: {af_format}")
-
-    else:
-        st.info("Semua data sudah paid 🎉")
-
-# =========================
-# SUMMARY DEALER
-# =========================
-st.subheader("🏢 Summary Dealer")
-
-if not df.empty:
-
-    df_unpaid = df[df["is_paid"] == False].copy()
-
-    if not df_unpaid.empty:
-
-        df_unpaid["dealer_clean"] = (
-            df_unpaid["dealer"]
-            .fillna("")
-            .str.upper()
-            .str.replace(",PT", "", regex=False)
-            .str.strip()
-        )
-
-        df_unpaid["af"] = df_unpaid["af"].replace('[Rp .]', '', regex=True).astype(float)
-
-        grouped = df_unpaid.groupby(["dealer_clean", "od_status"]).agg(
-            total_account=("noreg", "count"),
-            total_af=("af", "sum")
-        ).reset_index()
-
-        pivot_acc = grouped.pivot(index="dealer_clean", columns="od_status", values="total_account").fillna(0)
-        pivot_af = grouped.pivot(index="dealer_clean", columns="od_status", values="total_af").fillna(0)
-
-        pivot_acc.columns = [f"{col}_ACC" for col in pivot_acc.columns]
-        pivot_af.columns = [f"{col}_AF" for col in pivot_af.columns]
-
-        pivot = pd.concat([pivot_acc, pivot_af], axis=1).reset_index()
-
-        pivot = pivot.fillna(0)
-
-        pivot["TOTAL_ACC"] = pivot.filter(like="_ACC").sum(axis=1)
-        pivot["TOTAL_AF"] = pivot.filter(like="_AF").sum(axis=1)
-
-        for col in pivot.columns:
-            if "_AF" in col:
-                pivot[col] = pivot[col].apply(lambda x: f"Rp {int(x):,}".replace(",", "."))
-
-        pivot = pivot.sort_values(by="TOTAL_ACC", ascending=False)
-
-        st.dataframe(pivot, use_container_width=True)
-
-# =========================
-# SUMMARY SALES
-# =========================
-st.subheader("📊 Summary by Sales")
-
-if not df.empty:
-
-    df_unpaid = df[df["is_paid"] == False].copy()
-
-    if not df_unpaid.empty:
-
-        df_unpaid["af"] = df_unpaid["af"].replace('[Rp .]', '', regex=True).astype(float)
-
-        pivot = df_unpaid.groupby("salesacc").agg(
-            total_account=("noreg", "count"),
-            total_af=("af", "sum")
-        ).reset_index()
-
-        pivot = pivot.sort_values(by="total_af", ascending=False)
-
-        pivot["total_af"] = pivot["total_af"].apply(lambda x: f"Rp {int(x):,}".replace(",", "."))
-
-        st.dataframe(pivot, use_container_width=True)
-
-# =========================
-# UPLOAD MASTER DATA (FINAL FIX ALL)
+# UPLOAD MASTER DATA (SUPER FIX)
 # =========================
 st.subheader("📤 Upload Master Data")
 
@@ -222,6 +115,7 @@ if uploaded_file:
 
     df_excel = pd.read_excel(uploaded_file)
 
+    # Rename kolom
     df_excel = df_excel.rename(columns={
         "NoReg": "noreg",
         "NamaCust": "nama_customer",
@@ -233,6 +127,7 @@ if uploaded_file:
         "AF": "af"
     })
 
+    # Pastikan AF numeric
     df_excel["af"] = pd.to_numeric(df_excel["af"], errors="coerce").fillna(0)
 
     st.dataframe(df_excel.head())
@@ -242,18 +137,48 @@ if uploaded_file:
         try:
             df_clean = df_excel.copy()
 
-            # ✅ FIX TIMESTAMP (WAJIB)
+            # =========================
+            # FIX TIMESTAMP
+            # =========================
             for col in df_clean.columns:
                 if pd.api.types.is_datetime64_any_dtype(df_clean[col]):
                     df_clean[col] = df_clean[col].astype(str)
 
-            # ✅ FIX NaN
+            # =========================
+            # FIX NaN
+            # =========================
             df_clean = df_clean.astype(object).where(pd.notnull(df_clean), None)
 
-            # ✅ TO DICT
+            # =========================
+            # FILTER KOLOM SESUAI DB
+            # =========================
+            allowed_columns = [
+                "noreg",
+                "nama_customer",
+                "dealer",
+                "salesacc",
+                "brand",
+                "state",
+                "state1",
+                "af"
+            ]
+
+            # VALIDASI KOLOM
+            missing_cols = [col for col in allowed_columns if col not in df_clean.columns]
+            if missing_cols:
+                st.error(f"❌ Kolom ini tidak ada di Excel: {missing_cols}")
+                st.stop()
+
+            df_clean = df_clean[allowed_columns]
+
+            # =========================
+            # CONVERT KE DICT
+            # =========================
             data = df_clean.to_dict(orient="records")
 
-            # ✅ BATCH UPLOAD
+            # =========================
+            # UPLOAD BATCH
+            # =========================
             batch_size = 500
             for i in range(0, len(data), batch_size):
                 supabase.table("db_ascii").upsert(data[i:i+batch_size]).execute()
