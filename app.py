@@ -21,7 +21,7 @@ st.title("📊 Controlling Overdue (OD)")
 st_autorefresh(interval=60000, key="refresh")
 
 # =========================
-# INPUT DATA (BALIK LAGI)
+# INPUT DATA
 # =========================
 st.subheader("➕ Input Invoice")
 
@@ -67,15 +67,12 @@ st.subheader("📋 Monitoring Table")
 
 if not df.empty:
 
-    df = df.sort_values(by=["is_paid", "aging_days"], ascending=[True, False])
-    df = df.reset_index(drop=True)
+    df = df.sort_values(by=["is_paid", "aging_days"], ascending=[True, False]).reset_index(drop=True)
 
-    # ❌ HAPUS ID
     if "id" in df.columns:
         df = df.drop(columns=["id"])
 
     df["af"] = df["af"].fillna(0)
-    df["af"] = df["af"].apply(lambda x: f"Rp {int(x):,}".replace(",", "."))
 
     def highlight_row(row):
         if row["is_paid"]:
@@ -90,20 +87,27 @@ if not df.empty:
             return ["background-color: #e6f4ff"] * len(row)
         return [""] * len(row)
 
-    st.dataframe(df.style.apply(highlight_row, axis=1), use_container_width=True)
+    df_display = df.copy()
+    df_display["af"] = df_display["af"].apply(lambda x: f"Rp {int(x):,}".replace(",", "."))
+
+    st.dataframe(df_display.style.apply(highlight_row, axis=1), use_container_width=True)
 
 else:
     st.info("Belum ada data")
 
 # =========================
-# DASHBOARD OD + CURRENT
+# DASHBOARD OD
 # =========================
 st.subheader("📈 Dashboard OD")
 
 if not df.empty:
 
     df_unpaid = df[df["is_paid"] == False].copy()
-    df_unpaid["af"] = df_unpaid["af"].replace('[Rp .]', '', regex=True).astype(float)
+
+    # NORMALISASI
+    df_unpaid["od_status"] = df_unpaid["od_status"].astype(str).str.upper().str.strip()
+
+    df_unpaid["af"] = pd.to_numeric(df_unpaid["af"], errors="coerce").fillna(0)
 
     summary = df_unpaid.groupby("od_status").agg(
         total_account=("noreg", "count"),
@@ -133,14 +137,10 @@ if not df.empty:
 
     df_unpaid = df[df["is_paid"] == False].copy()
 
-    df_unpaid["dealer_clean"] = (
-        df_unpaid["dealer"]
-        .fillna("")
-        .str.upper()
-        .str.strip()
-    )
-
-    df_unpaid["af"] = df_unpaid["af"].replace('[Rp .]', '', regex=True).astype(float)
+    # CLEANING
+    df_unpaid["dealer_clean"] = df_unpaid["dealer"].fillna("").str.upper().str.strip()
+    df_unpaid["od_status"] = df_unpaid["od_status"].astype(str).str.upper().str.strip()
+    df_unpaid["af"] = pd.to_numeric(df_unpaid["af"], errors="coerce").fillna(0)
 
     grouped = df_unpaid.groupby(["dealer_clean", "od_status"]).agg(
         total_account=("noreg", "count"),
@@ -158,11 +158,19 @@ if not df.empty:
     pivot["TOTAL_ACC"] = pivot.filter(like="_ACC").sum(axis=1)
     pivot["TOTAL_AF"] = pivot.filter(like="_AF").sum(axis=1)
 
-    # 🔥 SORT PRIORITAS (FIX)
+    # PASTIKAN KOLOM ADA (ANTI ERROR)
+    for col in ["CURRENT_AF", "OD 1_AF", "OD 2_AF", "OD 3_AF"]:
+        if col not in pivot.columns:
+            pivot[col] = 0
+
+    # SORT PRIORITAS
     pivot = pivot.sort_values(
-        by=["CURRENT_AF", "OD 1_AF", "OD 2_AF"],
+        by=["CURRENT_AF", "OD 1_AF", "OD 2_AF", "OD 3_AF"],
         ascending=False
     )
+
+    # RANKING
+    pivot["RANK"] = range(1, len(pivot) + 1)
 
     # FORMAT RUPIAH
     for col in pivot.columns:
@@ -179,7 +187,7 @@ st.subheader("📊 Summary by Sales")
 if not df.empty:
 
     df_unpaid = df[df["is_paid"] == False].copy()
-    df_unpaid["af"] = df_unpaid["af"].replace('[Rp .]', '', regex=True).astype(float)
+    df_unpaid["af"] = pd.to_numeric(df_unpaid["af"], errors="coerce").fillna(0)
 
     pivot = df_unpaid.groupby("salesacc").agg(
         total_account=("noreg", "count"),
@@ -223,15 +231,12 @@ if uploaded_file:
         try:
             df_clean = df_excel.copy()
 
-            # FIX TIMESTAMP
             for col in df_clean.columns:
                 if pd.api.types.is_datetime64_any_dtype(df_clean[col]):
                     df_clean[col] = df_clean[col].astype(str)
 
-            # FIX NaN
             df_clean = df_clean.astype(object).where(pd.notnull(df_clean), None)
 
-            # FILTER KOLOM
             allowed_columns = [
                 "noreg", "nama_customer", "dealer",
                 "salesacc", "brand", "state",
