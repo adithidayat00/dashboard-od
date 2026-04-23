@@ -16,7 +16,7 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 # PAGE CONFIG
 # =========================
 st.set_page_config(page_title="Monitoring OD", layout="wide")
-st.title("📊 Monitoring Overdue (OD)")
+st.title("📊 Controlling Overdue (OD)")
 
 st_autorefresh(interval=60000, key="refresh")
 
